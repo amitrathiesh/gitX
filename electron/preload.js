@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getScripts: (project) => ipcRenderer.invoke('project:get-scripts', project),
     updateProject: (project) => ipcRenderer.invoke('project:update', project),
     getBranch: (project) => ipcRenderer.invoke('project:get-branch', project),
+    executeCommand: (command, projectPath) => ipcRenderer.send('terminal:execute', command, projectPath),
     openFolder: (path) => ipcRenderer.invoke('folder:open', path),
 
     // Events

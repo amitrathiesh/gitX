@@ -145,6 +145,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
 
             // Set up steaming listeners
             const streamingBufferRef = { current: '' };
+            const fullResponseRef = { current: '' };
             let isStreaming = false;
             let streamInterval = null;
 
@@ -153,7 +154,24 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                     if (!isStreaming && streamInterval) {
                         clearInterval(streamInterval);
                         streamInterval = null;
-                        term.write('\r\n\r\n\x1b[35m❯\x1b[0m ');
+                        // Check for execution command at the end of stream
+                        const fullText = fullResponseRef.current;
+                        const match = fullText.match(/<<<EXECUTE: (.*?)>>>/);
+
+                        if (match) {
+                            const command = match[1];
+                            term.write(`\r\n\x1b[36m[Auto-Running: ${command}]\x1b[0m\r\n`);
+                            // Small delay to let user see the message
+                            setTimeout(() => {
+                                handleToggleAiMode(); // Switch to normal mode (so they see output)
+                                if (window.electronAPI.executeCommand) {
+                                    window.electronAPI.executeCommand(command, context.projectPath);
+                                }
+                            }, 800);
+                        } else {
+                            term.write('\r\n\r\n\x1b[35m❯\x1b[0m ');
+                        }
+
                         cleanup();
                     }
                     return;
@@ -180,6 +198,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 }
 
                 streamingBufferRef.current += data;
+                fullResponseRef.current += data;
             };
 
             const handleError = (error) => {

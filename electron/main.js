@@ -347,6 +347,30 @@ ipcMain.on('project:stop', (event, project) => {
     }
 });
 
+// Execute arbitrary command (for AI)
+ipcMain.on('terminal:execute', (event, command, projectPath) => {
+    console.log(`[Execute] Running: ${command} in ${projectPath}`);
+    event.sender.send('terminal-output', { projectId: projectPath, data: `\n> ${command}\n` });
+
+    const child = spawn(command, {
+        cwd: projectPath,
+        shell: true,
+        env: { ...process.env, FORCE_COLOR: '1' }
+    });
+
+    child.stdout.on('data', (data) => {
+        event.sender.send('terminal-output', { projectId: projectPath, data: data.toString() });
+    });
+
+    child.stderr.on('data', (data) => {
+        event.sender.send('terminal-output', { projectId: projectPath, data: data.toString() });
+    });
+
+    child.on('close', (code) => {
+        event.sender.send('terminal-output', { projectId: projectPath, data: `\nProcess exited with code ${code}\n` });
+    });
+});
+
 // Check if Gemini CLI is available
 ipcMain.handle('gemini:check-available', async () => {
     return new Promise((resolve) => {
@@ -428,8 +452,10 @@ ipcMain.on('gemini:query', (event, query, context) => {
         "- Avoid markdown that requires rendering (like tables).\n" +
         "- Use indentation for code blocks.\n" +
         "- Keep responses concise and readable.\n" +
-        "- CRITICAL: You CANNOT execute commands directly. You are a text-only interface. " +
-        "If the user needs to run a command, explicitly provide the command for them to copy and paste.\n\n";
+        "- TO EXECUTE A COMMAND: If the user asks you to run a command, you can execute it by outputting it in this format:\n" +
+        "  <<<EXECUTE: command>>>\n" +
+        "  Example: <<<EXECUTE: npm run dev>>>\n" +
+        "  Only use this if the user explicitly asks you to run something. Otherwise just provide the command text.\n\n";
 
     const fullPrompt = `${systemInstructions}User Question: ${query}`;
 
