@@ -159,9 +159,9 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                     return;
                 }
 
-                // Adaptive typing speed: if buffer is huge, type faster
+                // Adaptive typing speed: if buffer is huge, type faster, but generally slower
                 const bufferLength = streamingBufferRef.current.length;
-                const chunkSize = Math.max(1, Math.floor(bufferLength / 20)); // Type ~5% of buffer per frame, min 1 char
+                const chunkSize = Math.max(1, Math.floor(bufferLength / 50)); // Type ~2% of buffer per frame, min 1 char
 
                 // Get chunk to write
                 const chunk = streamingBufferRef.current.slice(0, chunkSize);
@@ -175,8 +175,8 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                     // Start streaming loop on first data
                     term.write('\r\x1b[K'); // Clear "Querying..."
                     isStreaming = true;
-                    // Run loop every 16ms (approx 60fps)
-                    streamInterval = setInterval(processStreamBuffer, 16);
+                    // Run loop every 30ms (approx 33fps) for smoother, slower reading speed
+                    streamInterval = setInterval(processStreamBuffer, 30);
                 }
 
                 streamingBufferRef.current += data;
