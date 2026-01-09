@@ -35,8 +35,9 @@ const TerminalView = ({ projectId, aiModeEnabled = false, project }) => {
             const width = container.clientWidth;
             const height = container.clientHeight;
 
-            if (width === 0 || height === 0) {
-                // Container not ready
+            // Additional check: ensure element is visible in DOM
+            if (width === 0 || height === 0 || !container.offsetParent) {
+                // Container not ready or hidden
                 return;
             }
 
@@ -57,19 +58,34 @@ const TerminalView = ({ projectId, aiModeEnabled = false, project }) => {
 
                 fitAddon = new FitAddon();
                 term.loadAddon(fitAddon);
-                term.open(container);
-                isOpen = true;
 
-                // Fit after opening
+                // CRITICAL: Wrap open in try-catch in case viewport fails to initialize
+                try {
+                    term.open(container);
+                    isOpen = true;
+                } catch (openError) {
+                    console.error('[TerminalView] term.open() failed:', openError);
+                    // Dispose and retry later
+                    if (term) {
+                        try { term.dispose(); } catch (e) { }
+                    }
+                    term = null;
+                    fitAddon = null;
+                    // Retry after a longer delay
+                    setTimeout(tryOpenTerminal, 500);
+                    return;
+                }
+
+                // Fit after opening - increased timeout for safety
                 setTimeout(() => {
                     try {
-                        if (fitAddon && container.clientWidth > 0) {
+                        if (fitAddon && container.clientWidth > 0 && container.offsetParent) {
                             fitAddon.fit();
                         }
                     } catch (e) {
                         console.warn('[TerminalView] Fit error:', e);
                     }
-                }, 100);
+                }, 150);
 
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;

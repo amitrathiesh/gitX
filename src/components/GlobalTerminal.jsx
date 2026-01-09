@@ -30,7 +30,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
             const width = container.clientWidth;
             const height = container.clientHeight;
 
-            if (width === 0 || height === 0) {
+            if (width === 0 || height === 0 || !container.offsetParent) {
                 // Container not ready
                 return;
             }
@@ -55,19 +55,32 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
 
                 fitAddon = new FitAddon();
                 term.loadAddon(fitAddon);
-                term.open(container);
-                isOpen = true;
+
+                // Wrap open in try-catch
+                try {
+                    term.open(container);
+                    isOpen = true;
+                } catch (openError) {
+                    console.error('[GlobalTerminal] term.open() failed:', openError);
+                    if (term) {
+                        try { term.dispose(); } catch (e) { }
+                    }
+                    term = null;
+                    fitAddon = null;
+                    setTimeout(tryOpenTerminal, 500);
+                    return;
+                }
 
                 // Fit after opening
                 setTimeout(() => {
                     try {
-                        if (fitAddon && container.clientWidth > 0) {
+                        if (fitAddon && container.clientWidth > 0 && container.offsetParent) {
                             fitAddon.fit();
                         }
                     } catch (e) {
                         console.warn('[GlobalTerminal] Fit error:', e);
                     }
-                }, 100);
+                }, 150);
 
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;
