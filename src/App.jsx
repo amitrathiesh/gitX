@@ -78,7 +78,7 @@ function App() {
                 </div>
             </div>
 
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-1 overflow-hidden relative">{/* Made relative for absolute terminal */}
                 {/* Main Content */}
                 <div className="flex-1 overflow-auto p-8">
                     <header className="mb-8">
@@ -90,22 +90,28 @@ function App() {
                     </main>
                 </div>
 
-                {/* Terminal Sidebar with Resize Handle */}
-                {terminalVisible && (
-                    <div className="relative h-full flex flex-col border-l border-border bg-card" style={{ width: `${terminalWidth}px` }}>
-                        {/* Resize Handle */}
+                {/* Terminal Sidebar with Resize Handle - Always mounted to preserve history */}
+                <div
+                    className="h-full flex flex-col border-l border-border bg-card transition-all duration-300 ease-in-out"
+                    style={{
+                        width: terminalVisible ? `${terminalWidth}px` : '0px',
+                        overflow: terminalVisible ? 'visible' : 'hidden'
+                    }}
+                >
+                    {/* Resize Handle */}
+                    {terminalVisible && (
                         <div
                             className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 transition-colors z-50"
                             onMouseDown={startResize}
                             style={{ touchAction: 'none' }}
                         />
-                        <GlobalTerminal
-                            project={selectedProject}
-                            isVisible={terminalVisible}
-                            onClose={() => setTerminalVisible(false)}
-                        />
-                    </div>
-                )}
+                    )}
+                    <GlobalTerminal
+                        project={selectedProject}
+                        isVisible={terminalVisible}
+                        onClose={() => setTerminalVisible(false)}
+                    />
+                </div>
             </div>
         </div>
     );

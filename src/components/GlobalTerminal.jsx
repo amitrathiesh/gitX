@@ -50,7 +50,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
         fitAddonRef.current = fitAddon;
 
         // Start persistent shell
-        if (window.electronAPI && window.electronAPI.startShell) {
+        if (project && window.electronAPI && window.electronAPI.startShell) {
             window.electronAPI.startShell(project.path);
         }
 
@@ -141,11 +141,11 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
             term.dispose();
             window.removeEventListener('resize', handleResize);
             resizeObserver.disconnect();
-            if (window.electronAPI.removeTerminalListener) {
+            if (window.electronAPI && window.electronAPI.removeTerminalListener) {
                 window.electronAPI.removeTerminalListener();
             }
         };
-    }, [project.path]);
+    }, [project?.path]);
 
     const handleAiQuery = async (query, term) => {
         if (!window.electronAPI) return;
@@ -300,10 +300,9 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
         inputBufferRef.current = '';
     };
 
-    if (!isVisible) return null;
-
+    // Use CSS to hide instead of unmounting to preserve history
     return (
-        <div className="h-full flex flex-col bg-card border-l border-border">
+        <div className={`h-full flex flex-col bg-card border-l border-border ${!isVisible ? 'hidden' : ''}`}>
             {/* Header */}
             <div className="flex items-center justify-between p-3 border-b border-border bg-secondary/30">
                 <div className="flex items-center gap-2">

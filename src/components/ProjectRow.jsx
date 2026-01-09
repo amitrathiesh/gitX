@@ -15,8 +15,9 @@ const ProjectRow = ({ project, onRun, onStop, onUpdate, onOpenFolder, onDelete, 
             if (project.type === 'node') {
                 window.electronAPI.getScripts(project).then(s => {
                     setScripts(s || {});
-                    if (s && s.start) setSelectedScript('start');
-                    else if (s && s.dev) setSelectedScript('dev');
+                    // Prioritize 'dev' over 'start' for better developer experience
+                    if (s && s.dev) setSelectedScript('dev');
+                    else if (s && s.start) setSelectedScript('start');
                     else if (s && Object.keys(s).length > 0) setSelectedScript(Object.keys(s)[0]);
                 });
             }

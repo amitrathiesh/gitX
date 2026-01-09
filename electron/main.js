@@ -3,6 +3,8 @@ const path = require('path');
 const Store = require('electron-store');
 const { exec, spawn } = require('child_process');
 const fs = require('fs');
+const net = require('net');
+
 
 process.env.PATH = [
     './node_modules/.bin',
@@ -20,6 +22,45 @@ const store = new Store();
 
 // Track running processes by project path
 const runningProcesses = new Map();
+
+// --- Port Utilities ---
+
+/**
+ * Checks if a port is available on localhost
+ */
+async function isPortAvailable(port) {
+    return new Promise((resolve) => {
+        const server = net.createServer();
+        server.once('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                resolve(false);
+            } else {
+                resolve(false);
+            }
+        });
+        server.once('listening', () => {
+            server.close();
+            resolve(true);
+        });
+        server.listen(port, '127.0.0.1');
+    });
+}
+
+/**
+ * Finds the next available port starting from basePort
+ */
+async function getAvailablePort(basePort) {
+    let port = parseInt(basePort);
+    const maxPort = 65535;
+
+    while (port <= maxPort) {
+        if (await isPortAvailable(port)) {
+            return port;
+        }
+        port++;
+    }
+    throw new Error('No available ports found');
+}
 
 // Local Project Import
 ipcMain.handle('project:select-local', async () => {
@@ -412,7 +453,7 @@ ipcMain.handle('project:get-branch', async (event, project) => {
 
 // Run with Script Support and Port Detection
 // Run with Script Support and Port Detection
-ipcMain.on('project:run', (event, project, scriptName = null, options = {}) => {
+ipcMain.on('project:run', async (event, project, scriptName = null, options = {}) => {
     // Determine command based on type
     let cmd = '';
     let args = [];
@@ -443,7 +484,27 @@ ipcMain.on('project:run', (event, project, scriptName = null, options = {}) => {
         env.PORT = options.port;
     }
 
+    // --- Automatic Port Selection ---
+    // If no port is specified, default to 3000
+    // If a port IS specified (or default), check if it's available
+    const preferredPort = env.PORT || 3000;
+    try {
+        const availablePort = await getAvailablePort(preferredPort);
+        env.PORT = availablePort.toString();
+    } catch (e) {
+        console.error('Failed to find an available port:', e);
+    }
+
     const child = spawn(cmd, args, { cwd: project.path, shell: true, env });
+
+    // Notify front-end if we picked a different port
+    if (env.PORT && env.PORT != (options?.port || 3000)) {
+        event.sender.send('terminal-output', {
+            projectId: project.path,
+            data: `\x1b[33mNote: Port conflict detected. Using alternative port: ${env.PORT}\x1b[0m\n`
+        });
+        event.sender.send('project:port-detected', { projectId: project.path, port: env.PORT });
+    }
 
     // Store process for stopping later
     runningProcesses.set(project.path, child);
