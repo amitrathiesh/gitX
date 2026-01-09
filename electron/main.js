@@ -393,12 +393,13 @@ ipcMain.handle('gemini:query', async (event, query, context) => {
 
         console.log(`[Gemini] Running in directory: ${projectPath}`);
 
-        // Use gemini CLI with --prompt for direct, fast queries
+        // Use gemini CLI with positional argument (--prompt is deprecated)
         // This runs in the project directory and has access to project files
-        const child = spawn('gemini', ['--prompt', query], {
+        // Escape the query for shell safety
+        const escapedQuery = query.replace(/'/g, "'\\''");
+        const child = spawn('/bin/bash', ['-c', `gemini '${escapedQuery}'`], {
             cwd: projectPath,  // Run in project directory
-            env: process.env,
-            shell: true
+            env: process.env
         });
 
         let response = '';
