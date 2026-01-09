@@ -419,11 +419,23 @@ ipcMain.on('gemini:query', (event, query, context) => {
         contextInfo += `Recent Logs:\n${context.recentLogs}\n\n`;
     }
 
+    // Build the full prompt with system instructions
+    const systemInstructions =
+        "SYSTEM: You are a helpful assistant running in a command-line interface. " +
+        "Format your response for a terminal environment:\n" +
+        "- Use short, clear paragraphs separated by newlines.\n" +
+        "- Use bullet points (• or -) for lists.\n" +
+        "- Avoid markdown that requires rendering (like tables).\n" +
+        "- Use indentation for code blocks.\n" +
+        "- Keep responses concise and readable.\n\n";
+
+    const fullPrompt = `${systemInstructions}User Question: ${query}`;
+
     console.log(`[Gemini] Running in directory: ${projectPath}`);
 
     // Use gemini CLI with positional argument (--prompt is deprecated)
     // Escape the query for shell safety
-    const escapedQuery = query.replace(/'/g, "'\\''");
+    const escapedQuery = fullPrompt.replace(/'/g, "'\\''");
 
     const child = spawn('/bin/bash', ['-c', `gemini '${escapedQuery}'`], {
         cwd: projectPath,  // Run in project directory
