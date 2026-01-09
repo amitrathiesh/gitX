@@ -88,20 +88,33 @@ const Dashboard = ({ onProjectSelect }) => {
     };
 
     const handleDelete = async (project) => {
-        const confirmed = window.confirm(
-            `Are you sure you want to remove "${project.name}" from the dashboard?\n\nNote: This will only remove it from gitX. The project files will not be deleted.`
+        // First confirmation: Remove from dashboard
+        const removeFromDashboard = window.confirm(
+            `Remove "${project.name}" from gitX dashboard?\n\n` +
+            `The project will be removed from the list, but files will remain on disk.`
         );
 
-        if (confirmed) {
-            try {
-                if (window.electronAPI) {
-                    await window.electronAPI.removeProject(project.path);
-                    loadProjects();
+        if (!removeFromDashboard) return;
+
+        // Second confirmation: Delete files from disk?
+        const deleteFiles = window.confirm(
+            `Do you also want to DELETE the project files from disk?\n\n` +
+            `⚠️ WARNING: This will permanently delete:\n${project.path}\n\n` +
+            `Click OK to DELETE FILES or Cancel to keep them.`
+        );
+
+        try {
+            if (window.electronAPI) {
+                await window.electronAPI.removeProject(project.path, deleteFiles);
+                loadProjects();
+
+                if (deleteFiles) {
+                    alert(`Project removed and files deleted successfully.`);
                 }
-            } catch (error) {
-                console.error('Failed to delete project', error);
-                alert(`Error removing project: ${error}`);
             }
+        } catch (error) {
+            console.error('Failed to delete project', error);
+            alert(`Error removing project: ${error}`);
         }
     };
 

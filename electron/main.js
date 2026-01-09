@@ -82,10 +82,25 @@ ipcMain.handle('project:add', (event, project) => {
 });
 
 // Remove project
-ipcMain.handle('project:remove', (event, projectPath) => {
+ipcMain.handle('project:remove', async (event, projectPath, deleteFiles = false) => {
+    // Remove from store
     let projects = store.get('projects', []);
     projects = projects.filter(p => p.path !== projectPath);
     store.set('projects', projects);
+
+    // Optionally delete files from disk
+    if (deleteFiles) {
+        try {
+            console.log(`[Delete] Removing files at: ${projectPath}`);
+            // Use fs.rm with recursive option (Node 14.14+)
+            await fs.promises.rm(projectPath, { recursive: true, force: true });
+            console.log(`[Delete] Successfully deleted: ${projectPath}`);
+        } catch (error) {
+            console.error(`[Delete] Failed to delete files:`, error);
+            throw new Error(`Failed to delete project files: ${error.message}`);
+        }
+    }
+
     return projects;
 });
 

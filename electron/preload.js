@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
     listProjects: () => ipcRenderer.invoke('project:list'),
     addProject: (project) => ipcRenderer.invoke('project:add', project),
-    removeProject: (path) => ipcRenderer.invoke('project:remove', path),
+    removeProject: (path, deleteFiles) => ipcRenderer.invoke('project:remove', path, deleteFiles),
     cloneProject: (url, targetDir) => ipcRenderer.invoke('project:clone', url, targetDir),
     detectType: (path) => ipcRenderer.invoke('project:detect', path),
     installProject: (project) => ipcRenderer.invoke('project:install', project),
