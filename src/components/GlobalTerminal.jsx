@@ -12,7 +12,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
     const fitAddonRef = useRef(null);
 
     // Use the hook
-    const { aiMode, handleToggleAiMode, handleData } = useGeminiTerminal(xtermRef, project);
+    const { aiMode, handleToggleAiMode, handleData, getAiHistory } = useGeminiTerminal(xtermRef, project);
 
     // We still need local state if we want to bind UI buttons to hook state,
     // but the hook returns aiMode which is reactive.
@@ -60,7 +60,13 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
             window.electronAPI.startShell(project.path);
         }
 
-        // Hook sync for initial AI mode if needed
+        // Restore AI conversation history (if any)
+        const aiHistory = getAiHistory();
+        if (aiHistory) {
+            term.write(aiHistory);
+        }
+
+        // Hook sync for initial AI mode if needed (after history restoration)
         if (aiMode) {
             term.write('\r\n\x1b[36mGemini: Type your question and press Enter\x1b[0m\r\n');
             term.write('\x1b[36m❯\x1b[0m ');

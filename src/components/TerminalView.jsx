@@ -10,7 +10,7 @@ const TerminalView = ({ projectId, aiModeEnabled = false, project }) => {
     const fitAddonRef = useRef(null);
 
     // AI Hook
-    const { aiMode, handleToggleAiMode, handleData } = useGeminiTerminal(xtermRef, project);
+    const { aiMode, handleToggleAiMode, handleData, getAiHistory } = useGeminiTerminal(xtermRef, project);
 
     // Sync AI mode from props
     useEffect(() => {
@@ -76,10 +76,16 @@ const TerminalView = ({ projectId, aiModeEnabled = false, project }) => {
 
                 // Setup event handlers
                 if (window.electronAPI) {
-                    // 1. Fetch History
+                    // 1. Fetch History (shell output)
                     window.electronAPI.getProjectHistory(projectId).then(history => {
                         if (history && term) {
                             term.write(history);
+                        }
+
+                        // 2. Restore AI conversation history (if any)
+                        const aiHistory = getAiHistory();
+                        if (aiHistory && term) {
+                            term.write(aiHistory);
                         }
                     });
 

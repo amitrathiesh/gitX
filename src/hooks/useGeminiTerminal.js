@@ -5,10 +5,25 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
     const aiModeRef = useRef(false);
     const inputBufferRef = useRef('');
 
+    // Load AI history from localStorage on mount
+    const getStorageKey = () => project?.path ? `gitx-ai-history-${project.path}` : null;
+    const aiHistoryRef = useRef(
+        (getStorageKey() && localStorage.getItem(getStorageKey())) || ''
+    );
+
     // Keep ref in sync
     useEffect(() => {
         aiModeRef.current = aiMode;
     }, [aiMode]);
+
+    // Save AI history to localStorage whenever it changes
+    const saveAiHistory = (text) => {
+        aiHistoryRef.current += text;
+        const key = getStorageKey();
+        if (key) {
+            localStorage.setItem(key, aiHistoryRef.current);
+        }
+    };
 
     const handleToggleAiMode = useCallback((overrideMode = null) => {
         const newMode = overrideMode !== null ? overrideMode : !aiModeRef.current;
@@ -30,10 +45,13 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
             }
 
             if (newMode) {
-                term.write('\r\n\x1b[36mGemini: Type your question and press Enter\x1b[0m\r\n');
-                term.write('\x1b[36m❯\x1b[0m ');
+                const prompt = '\r\n\x1b[36mGemini: Type your question and press Enter\x1b[0m\r\n\x1b[36m❯\x1b[0m ';
+                term.write(prompt);
+                saveAiHistory(prompt);
             } else {
-                term.write('\r\n\x1b[36mNormal Mode\x1b[0m\r\n');
+                const msg = '\r\n\x1b[36mNormal Mode\x1b[0m\r\n';
+                term.write(msg);
+                saveAiHistory(msg);
             }
 
             try {
@@ -121,11 +139,13 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
                 console.log('[useGeminiTerminal] Received chunk:', data.length, data.substring(0, 100));
                 if (!isStreaming) {
                     term.write('\r\x1b[K'); // Clear "Querying..."
+                    saveAiHistory('\r\x1b[K');
                     isStreaming = true;
                     streamInterval = setInterval(processStreamBuffer, 30);
                 }
                 streamingBufferRef.current += data;
                 fullResponseRef.current += data;
+                saveAiHistory(data);
             };
 
             const handleError = (error) => {
@@ -173,10 +193,13 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
                 const query = inputBufferRef.current.trim();
                 if (query) {
                     term.write('\r\n');
+                    saveAiHistory('\r\n');
                     handleAiQuery(query);
                     inputBufferRef.current = '';
                 } else {
-                    term.write('\r\n\x1b[35m❯\x1b[0m ');
+                    const prompt = '\r\n\x1b[35m❯\x1b[0m ';
+                    term.write(prompt);
+                    saveAiHistory(prompt);
                 }
                 return;
             }
@@ -186,6 +209,7 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
                 if (inputBufferRef.current.length > 0) {
                     inputBufferRef.current = inputBufferRef.current.slice(0, -1);
                     term.write('\b \b');
+                    saveAiHistory('\b \b');
                 }
                 return;
             }
@@ -193,14 +217,18 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
             // Ctrl+C
             if (firstCode === 3) {
                 inputBufferRef.current = '';
-                term.write('^C\r\n\x1b[35m❯\x1b[0m ');
+                const msg = '^C\r\n\x1b[35m❯\x1b[0m ';
+                term.write(msg);
+                saveAiHistory(msg);
                 return;
             }
 
             if (firstCode < 32) return;
 
+            // Local echo for AI input
             inputBufferRef.current += data;
             term.write(data);
+            saveAiHistory(data);
         } else {
             // Normal Mode: Send to backend
             // Caller should handle this or we return a flag indicating "not handled"
@@ -213,6 +241,12 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
     return {
         aiMode,
         handleToggleAiMode,
-        handleData
+        handleData,
+        getAiHistory: () => aiHistoryRef.current,
+        clearAiHistory: () => {
+            aiHistoryRef.current = '';
+            const key = getStorageKey();
+            if (key) localStorage.removeItem(key);
+        }
     };
 };
