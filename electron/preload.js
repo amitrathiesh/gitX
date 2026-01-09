@@ -25,4 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onGeminiData: (callback) => ipcRenderer.on('gemini:data', (event, data) => callback(data)),
     onGeminiError: (callback) => ipcRenderer.on('gemini:error', (event, error) => callback(error)),
     onGeminiComplete: (callback) => ipcRenderer.on('gemini:complete', () => callback()),
+    removeAllGeminiListeners: () => {
+        ipcRenderer.removeAllListeners('gemini:data');
+        ipcRenderer.removeAllListeners('gemini:error');
+        ipcRenderer.removeAllListeners('gemini:complete');
+    },
 });

@@ -195,10 +195,18 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
             };
 
             const cleanup = () => {
-                if (window.electronAPI.onGeminiData) window.electronAPI.onGeminiData(() => { });
-                if (window.electronAPI.onGeminiError) window.electronAPI.onGeminiError(() => { });
-                if (window.electronAPI.onGeminiComplete) window.electronAPI.onGeminiComplete(() => { });
+                if (window.electronAPI.removeAllGeminiListeners) {
+                    window.electronAPI.removeAllGeminiListeners();
+                } else {
+                    // Fallback for safety if reload hasn't happened yet
+                    if (window.electronAPI.onGeminiData) window.electronAPI.onGeminiData(() => { });
+                    if (window.electronAPI.onGeminiError) window.electronAPI.onGeminiError(() => { });
+                    if (window.electronAPI.onGeminiComplete) window.electronAPI.onGeminiComplete(() => { });
+                }
             };
+
+            // Remove any existing listeners first
+            cleanup();
 
             // Attach listeners
             window.electronAPI.onGeminiData(handleData);
