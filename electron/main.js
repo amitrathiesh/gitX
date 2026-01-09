@@ -89,6 +89,23 @@ ipcMain.handle('project:remove', (event, projectPath) => {
     return projects;
 });
 
+// Open folder in system file manager
+ipcMain.handle('folder:open', async (event, folderPath) => {
+    try {
+        const result = await shell.openPath(folderPath);
+        if (result) {
+            // openPath returns empty string on success, error message on failure
+            console.error(`[Open Folder] Failed: ${result}`);
+            return { success: false, error: result };
+        }
+        console.log(`[Open Folder] Opened: ${folderPath}`);
+        return { success: true };
+    } catch (error) {
+        console.error(`[Open Folder] Error:`, error);
+        return { success: false, error: error.message };
+    }
+});
+
 // Clone project
 ipcMain.handle('project:clone', async (event, url, targetDir) => {
     return new Promise((resolve, reject) => {

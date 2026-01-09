@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getScripts: (project) => ipcRenderer.invoke('project:get-scripts', project),
     updateProject: (project) => ipcRenderer.invoke('project:update', project),
     getBranch: (project) => ipcRenderer.invoke('project:get-branch', project),
+    openFolder: (path) => ipcRenderer.invoke('folder:open', path),
 
     // Events
     onTerminalOutput: (callback) => ipcRenderer.on('terminal-output', (event, value) => callback(value)),

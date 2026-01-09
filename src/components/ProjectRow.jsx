@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Square, RefreshCw, FolderOpen, GitBranch, Server } from 'lucide-react';
+import { Play, Square, RefreshCw, FolderOpen, GitBranch, Server, Trash2 } from 'lucide-react';
 
-const ProjectRow = ({ project, onRun, onStop, onUpdate, onOpenFolder, onSelect }) => {
+const ProjectRow = ({ project, onRun, onStop, onUpdate, onOpenFolder, onDelete, onSelect }) => {
     const [scripts, setScripts] = useState({});
     const [selectedScript, setSelectedScript] = useState('');
     const [branch, setBranch] = useState('');
@@ -156,6 +156,14 @@ const ProjectRow = ({ project, onRun, onStop, onUpdate, onOpenFolder, onSelect }
                         title="Open Folder"
                     >
                         <FolderOpen size={16} />
+                    </button>
+
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onDelete(project); }}
+                        className="p-2 rounded-md bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                        title="Remove from Dashboard"
+                    >
+                        <Trash2 size={16} />
                     </button>
                 </div>
             </td>

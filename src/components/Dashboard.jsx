@@ -87,6 +87,24 @@ const Dashboard = ({ onProjectSelect }) => {
         }
     };
 
+    const handleDelete = async (project) => {
+        const confirmed = window.confirm(
+            `Are you sure you want to remove "${project.name}" from the dashboard?\n\nNote: This will only remove it from gitX. The project files will not be deleted.`
+        );
+
+        if (confirmed) {
+            try {
+                if (window.electronAPI) {
+                    await window.electronAPI.removeProject(project.path);
+                    loadProjects();
+                }
+            } catch (error) {
+                console.error('Failed to delete project', error);
+                alert(`Error removing project: ${error}`);
+            }
+        }
+    };
+
     const filteredProjects = projects.filter(p =>
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.path.toLowerCase().includes(searchTerm.toLowerCase())
@@ -165,6 +183,7 @@ const Dashboard = ({ onProjectSelect }) => {
                                         onStop={handleStop}
                                         onUpdate={handleUpdate}
                                         onOpenFolder={handleOpenFolder}
+                                        onDelete={handleDelete}
                                         onSelect={onProjectSelect}
                                     />
                                 ))}
