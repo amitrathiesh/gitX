@@ -28,6 +28,19 @@ const TerminalView = ({ projectId, aiModeEnabled = false, project }) => {
         let resizeObserver = null;
         let isOpen = false;
 
+        // Suppress xterm dimensions error globally
+        const originalError = console.error;
+        const errorHandler = (...args) => {
+            const msg = args[0]?.toString() || '';
+            // Suppress the specific dimensions error but log others
+            if (msg.includes('dimensions') || msg.includes('Viewport')) {
+                // Silently ignore this specific error
+                return;
+            }
+            originalError.apply(console, args);
+        };
+        console.error = errorHandler;
+
         const tryOpenTerminal = () => {
             if (isOpen || !terminalRef.current) return;
 
@@ -157,6 +170,9 @@ const TerminalView = ({ projectId, aiModeEnabled = false, project }) => {
         window.addEventListener('resize', handleResize);
 
         return () => {
+            // Restore console.error
+            console.error = originalError;
+
             if (unsubscribeLogs && typeof unsubscribeLogs === 'function') {
                 unsubscribeLogs();
             }

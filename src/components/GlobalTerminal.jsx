@@ -23,6 +23,17 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
         let resizeObserver = null;
         let isOpen = false;
 
+        // Suppress xterm dimensions error
+        const originalError = console.error;
+        const errorHandler = (...args) => {
+            const msg = args[0]?.toString() || '';
+            if (msg.includes('dimensions') || msg.includes('Viewport')) {
+                return; // Silently ignore
+            }
+            originalError.apply(console, args);
+        };
+        console.error = errorHandler;
+
         const tryOpenTerminal = () => {
             if (isOpen || !terminalRef.current) return;
 
@@ -156,6 +167,9 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
         window.addEventListener('resize', handleResize);
 
         return () => {
+            // Restore console.error
+            console.error = originalError;
+
             // Cleanup
             if (unsubscribeLogs && typeof unsubscribeLogs === 'function') unsubscribeLogs();
             window.removeEventListener('resize', handleResize);
