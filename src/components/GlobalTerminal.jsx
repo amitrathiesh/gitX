@@ -14,104 +14,151 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
     // Use the hook
     const { aiMode, handleToggleAiMode, handleData, getAiHistory } = useGeminiTerminal(xtermRef, project);
 
-    // We still need local state if we want to bind UI buttons to hook state,
-    // but the hook returns aiMode which is reactive.
-
     useEffect(() => {
         if (!terminalRef.current) return;
 
-        // Initialize xterm
-        const term = new XTerm({
-            cursorBlink: true,
-            theme: {
-                background: '#0a0a0a', // Almost black
-                foreground: '#ffffff', // Pure white
-                cursor: aiMode ? '#a855f7' : '#ffffff',
-                selection: '#5b5b5b',
-            },
-            fontSize: 12,
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-            rows: 30,
-            cols: 80,
-            scrollback: 1000,
-            convertEol: true,
-        });
+        let term = null;
+        let fitAddon = null;
+        let unsubscribeLogs = null;
+        let resizeObserver = null;
+        let isOpen = false;
 
-        const fitAddon = new FitAddon();
-        term.loadAddon(fitAddon);
-        term.open(terminalRef.current);
+        const tryOpenTerminal = () => {
+            if (isOpen || !terminalRef.current) return;
 
-        setTimeout(() => {
-            // Safety check for dimensions - only fit if visible and has width
-            if (terminalRef.current && terminalRef.current.offsetParent && terminalRef.current.clientWidth > 0) {
+            const container = terminalRef.current;
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            if (width === 0 || height === 0) {
+                // Container not ready
+                return;
+            }
+
+            try {
+                // Initialize xterm
+                term = new XTerm({
+                    cursorBlink: true,
+                    theme: {
+                        background: '#0a0a0a',
+                        foreground: '#ffffff',
+                        cursor: aiMode ? '#a855f7' : '#ffffff',
+                        selection: '#5b5b5b',
+                    },
+                    fontSize: 12,
+                    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                    rows: 30,
+                    cols: 80,
+                    scrollback: 1000,
+                    convertEol: true,
+                });
+
+                fitAddon = new FitAddon();
+                term.loadAddon(fitAddon);
+                term.open(container);
+                isOpen = true;
+
+                // Fit after opening
+                setTimeout(() => {
+                    try {
+                        if (fitAddon && container.clientWidth > 0) {
+                            fitAddon.fit();
+                        }
+                    } catch (e) {
+                        console.warn('[GlobalTerminal] Fit error:', e);
+                    }
+                }, 100);
+
+                xtermRef.current = term;
+                fitAddonRef.current = fitAddon;
+
+                // Start persistent shell
+                if (project && window.electronAPI && window.electronAPI.startShell) {
+                    window.electronAPI.startShell(project.path);
+                }
+
+                // Restore AI conversation history (if any)
+                const aiHistory = getAiHistory();
+                if (aiHistory) {
+                    term.write(aiHistory);
+                }
+
+                // Hook sync for initial AI mode if needed (after history restoration)
+                if (aiMode) {
+                    term.write('\r\n\x1b[36mGemini: Type your question and press Enter\x1b[0m\r\n');
+                    term.write('\x1b[36m❯\x1b[0m ');
+                }
+
+                // Listen for terminal output from project
+                const handleOutput = (data) => {
+                    if (!xtermRef.current?.aiMode && data.projectId === project?.path) {
+                        term.write(data.data);
+                    }
+                };
+
+                // Input handling via Hook
+                term.onData(handleData);
+
+                // Listeners
+                if (window.electronAPI) {
+                    unsubscribeLogs = window.electronAPI.onTerminalOutput(handleOutput);
+                }
+            } catch (e) {
+                console.error('[GlobalTerminal] Failed to open terminal:', e);
+            }
+        };
+
+        // Use ResizeObserver to detect when container gets dimensions
+        resizeObserver = new ResizeObserver(() => {
+            if (!isOpen) {
+                tryOpenTerminal();
+            } else if (fitAddonRef.current && terminalRef.current) {
                 try {
-                    fitAddon.fit();
+                    fitAddonRef.current.fit();
                 } catch (e) {
-                    console.warn('[GlobalTerminal] Initial fit error:', e);
+                    // Ignore resize errors
                 }
             }
-        }, 150);
+        });
 
-        xtermRef.current = term;
-        fitAddonRef.current = fitAddon;
-
-        // Start persistent shell
-        if (project && window.electronAPI && window.electronAPI.startShell) {
-            window.electronAPI.startShell(project.path);
-        }
-
-        // Restore AI conversation history (if any)
-        const aiHistory = getAiHistory();
-        if (aiHistory) {
-            term.write(aiHistory);
-        }
-
-        // Hook sync for initial AI mode if needed (after history restoration)
-        if (aiMode) {
-            term.write('\r\n\x1b[36mGemini: Type your question and press Enter\x1b[0m\r\n');
-            term.write('\x1b[36m❯\x1b[0m ');
-        }
-
-        // Listen for terminal output from project
-        const handleOutput = (data) => {
-            // Need to access current ref for aiMode check, or use the value from closure if it updates?
-            // Since this effect runs on project change, aiMode might be stale if we don't use ref.
-            // But useGeminiTerminal handles its own mode state. 
-            // We can check xtermRef.current.aiMode if we set it.
-            if (!xtermRef.current?.aiMode && data.projectId === project?.path) {
-                term.write(data.data);
-            }
-        };
-
-        // Input handling via Hook
-        term.onData(handleData);
-
-        // Listeners
-        let unsubscribeLogs;
-        if (window.electronAPI) {
-            unsubscribeLogs = window.electronAPI.onTerminalOutput(handleOutput);
-        }
-
-        const handleResize = () => {
-            if (fitAddonRef.current && terminalRef.current && terminalRef.current.offsetParent) {
-                fitAddonRef.current.fit();
-            }
-        };
-
-        window.addEventListener('resize', handleResize);
-        const resizeObserver = new ResizeObserver(() => handleResize());
         if (terminalRef.current) {
             resizeObserver.observe(terminalRef.current);
         }
 
+        // Try immediate open
+        tryOpenTerminal();
+
+        const handleResize = () => {
+            if (fitAddonRef.current && terminalRef.current && terminalRef.current.offsetParent) {
+                try {
+                    fitAddonRef.current.fit();
+                } catch (e) {
+                    // Ignore
+                }
+            }
+        };
+        window.addEventListener('resize', handleResize);
+
         return () => {
             // Cleanup
             if (unsubscribeLogs && typeof unsubscribeLogs === 'function') unsubscribeLogs();
-            term.dispose();
             window.removeEventListener('resize', handleResize);
-            resizeObserver.disconnect();
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+            }
+            if (xtermRef.current) {
+                try {
+                    xtermRef.current.dispose();
+                } catch (e) {
+                    console.warn('[GlobalTerminal] Dispose error:', e);
+                }
+                xtermRef.current = null;
+            }
+            if (fitAddonRef.current) {
+                fitAddonRef.current = null;
+            }
         };
-    }, [project?.path]); // Removed handleData - it changes too often and causes terminal recreation
+    }, [project?.path]);
 
     // Sync AI mode to xterm instance for the handleOutput check
     useEffect(() => {
