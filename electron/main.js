@@ -427,7 +427,9 @@ ipcMain.on('gemini:query', (event, query, context) => {
         "- Use bullet points (• or -) for lists.\n" +
         "- Avoid markdown that requires rendering (like tables).\n" +
         "- Use indentation for code blocks.\n" +
-        "- Keep responses concise and readable.\n\n";
+        "- Keep responses concise and readable.\n" +
+        "- CRITICAL: You CANNOT execute commands directly. You are a text-only interface. " +
+        "If the user needs to run a command, explicitly provide the command for them to copy and paste.\n\n";
 
     const fullPrompt = `${systemInstructions}User Question: ${query}`;
 
