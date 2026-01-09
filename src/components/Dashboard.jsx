@@ -19,6 +19,11 @@ const Dashboard = ({ onProjectSelect }) => {
                 setProjects(prev => prev.map(p => p.path === projectId ? { ...p, status } : p));
             });
 
+            // Listen for port detection
+            window.electronAPI.onPortDetected(({ projectId, port }) => {
+                setProjects(prev => prev.map(p => p.path === projectId ? { ...p, port } : p));
+            });
+
             // Menu Handlers
             if (window.electronAPI.onMenuAddUrl) {
                 window.electronAPI.onMenuAddUrl(() => {

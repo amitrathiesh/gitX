@@ -725,10 +725,60 @@ ipcMain.on('gemini:query', (event, query, context) => {
     });
 
     let errorOutput = '';
+    let textBuffer = ''; // Buffer for incomplete lines
 
-    // Stream stdout chunks directly to frontend
+    // Format Gemini output for better readability
+    const formatGeminiOutput = (text) => {
+        let formatted = text;
+
+        // Convert markdown to ANSI escape codes
+        // Bold: **text** -> bold text
+        formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '\x1b[1m$1\x1b[0m');
+
+        // Italic: *text* -> italic text (simpler pattern)
+        formatted = formatted.replace(/\*([^*\n]+)\*/g, (match, p1) => {
+            // Skip if it's part of **
+            if (match.includes('**')) return match;
+            return `\x1b[3m${p1}\x1b[0m`;
+        });
+
+        // Bullet points: • or - at line start -> cyan
+        formatted = formatted.replace(/^([•\-])\s/gm, '\x1b[36m$1\x1b[0m ');
+
+        // Inline code: `code` -> yellow
+        formatted = formatted.replace(/`([^`]+)`/g, '\x1b[33m$1\x1b[0m');
+
+        // Highlight <<<EXECUTE>>> commands with yellow background
+        formatted = formatted.replace(/<<<EXECUTE:\s*([^>]+)>>>/g,
+            '\r\n\x1b[43;30m $ $1 \x1b[0m\r\n');
+
+        // Add visual separator before commands
+        formatted = formatted.replace(/(<<<EXECUTE:)/g,
+            '\r\n\x1b[2;37m────────────────\x1b[0m\r\n$1');
+
+        // Add left padding (2 spaces) to each line
+        formatted = formatted.split('\n').map(line => line ? '  ' + line : line).join('\n');
+
+        return formatted;
+    };
+
+    // Stream stdout chunks directly to frontend with formatting
     child.stdout.on('data', (data) => {
-        event.sender.send('gemini:data', data.toString());
+        const text = data.toString();
+        textBuffer += text;
+
+        // Only process complete lines (ending with \n)
+        const lines = textBuffer.split('\n');
+
+        // Keep the last incomplete line in buffer
+        textBuffer = lines.pop() || '';
+
+        // Format and send complete lines
+        if (lines.length > 0) {
+            const completeText = lines.join('\n') + '\n';
+            const formatted = formatGeminiOutput(completeText);
+            event.sender.send('gemini:data', formatted);
+        }
     });
 
     child.stderr.on('data', (data) => {
@@ -736,6 +786,13 @@ ipcMain.on('gemini:query', (event, query, context) => {
     });
 
     child.on('close', (code) => {
+        // Flush any remaining buffered text
+        if (textBuffer.trim()) {
+            const formatted = formatGeminiOutput(textBuffer);
+            event.sender.send('gemini:data', formatted);
+            textBuffer = '';
+        }
+
         if (code !== 0) {
             console.error(`[Gemini] Error: ${errorOutput}`);
             event.sender.send('gemini:error', `Gemini CLI error: ${errorOutput}`);

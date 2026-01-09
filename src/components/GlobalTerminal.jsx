@@ -215,7 +215,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 const chunk = streamingBufferRef.current.slice(0, chunkSize);
                 streamingBufferRef.current = streamingBufferRef.current.slice(chunkSize);
 
-                term.write(`\x1b[36m${chunk}\x1b[0m`);
+                term.write(chunk);
             };
 
             const handleData = (data) => {
@@ -294,6 +294,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 // Returning to shell
                 xtermRef.current.write('\r\n\x1b[36mNormal Mode\x1b[0m\r\n');
             }
+            xtermRef.current.focus(); // Auto-focus terminal
         }
 
         inputBufferRef.current = '';
