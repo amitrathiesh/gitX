@@ -360,105 +360,99 @@ ipcMain.handle('gemini:check-available', async () => {
     });
 });
 
-// Query Gemini CLI
-ipcMain.handle('gemini:query', async (event, query, context) => {
-    return new Promise((resolve, reject) => {
-        console.log(`[Gemini] Query: ${query}`);
-        console.log(`[Gemini] Context:`, context);
+// Query Gemini CLI (streaming version)
+ipcMain.on('gemini:query', (event, query, context) => {
+    console.log(`[Gemini] Query: ${query}`);
+    console.log(`[Gemini] Context:`, context);
 
-        if (!context || !context.projectPath) {
-            reject('No project path provided');
+    if (!context || !context.projectPath) {
+        event.sender.send('gemini:error', 'No project path provided');
+        return;
+    }
+
+    const projectPath = context.projectPath;
+
+    // Build rich context from project files
+    let contextInfo = `Project: ${context.projectName}\nType: ${context.projectType}\nLocation: ${projectPath}\n\n`;
+
+    // Try to read README
+    const readmePaths = ['README.md', 'README.txt', 'readme.md'];
+    for (const readme of readmePaths) {
+        const readmePath = path.join(projectPath, readme);
+        if (fs.existsSync(readmePath)) {
+            try {
+                const readmeContent = fs.readFileSync(readmePath, 'utf8');
+                // Limit README to first 2000 chars to avoid overwhelming context
+                contextInfo += `README:\n${readmeContent.substring(0, 2000)}\n\n`;
+                break;
+            } catch (e) {
+                console.error('[Gemini] Failed to read README:', e);
+            }
+        }
+    }
+
+    // For Node projects, include package.json info
+    if (context.projectType === 'node') {
+        const pkgPath = path.join(projectPath, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+            try {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                contextInfo += `Package Info:\n`;
+                contextInfo += `- Name: ${pkg.name}\n`;
+                contextInfo += `- Version: ${pkg.version}\n`;
+                contextInfo += `- Description: ${pkg.description || 'N/A'}\n`;
+                if (pkg.scripts) {
+                    contextInfo += `- Scripts: ${Object.keys(pkg.scripts).join(', ')}\n`;
+                }
+                if (pkg.dependencies) {
+                    contextInfo += `- Dependencies: ${Object.keys(pkg.dependencies).slice(0, 10).join(', ')}${Object.keys(pkg.dependencies).length > 10 ? '...' : ''}\n`;
+                }
+                contextInfo += '\n';
+            } catch (e) {
+                console.error('[Gemini] Failed to read package.json:', e);
+            }
+        }
+    }
+
+    // Include recent logs if provided
+    if (context.recentLogs) {
+        contextInfo += `Recent Logs:\n${context.recentLogs}\n\n`;
+    }
+
+    console.log(`[Gemini] Running in directory: ${projectPath}`);
+
+    // Use gemini CLI with positional argument (--prompt is deprecated)
+    // Escape the query for shell safety
+    const escapedQuery = query.replace(/'/g, "'\\''");
+    const child = spawn('/bin/bash', ['-c', `gemini '${escapedQuery}'`], {
+        cwd: projectPath,  // Run in project directory
+        env: process.env
+    });
+
+    let errorOutput = '';
+
+    // Stream stdout chunks directly to frontend
+    child.stdout.on('data', (data) => {
+        event.sender.send('gemini:data', data.toString());
+    });
+
+    child.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+    });
+
+    child.on('close', (code) => {
+        if (code !== 0) {
+            console.error(`[Gemini] Error: ${errorOutput}`);
+            event.sender.send('gemini:error', `Gemini CLI error: ${errorOutput}`);
             return;
         }
 
-        const projectPath = context.projectPath;
+        console.log(`[Gemini] Response complete`);
+        event.sender.send('gemini:complete');
+    });
 
-        // Build rich context from project files
-        let contextInfo = `Project: ${context.projectName}\nType: ${context.projectType}\nLocation: ${projectPath}\n\n`;
-
-        // Try to read README
-        const readmePaths = ['README.md', 'README.txt', 'readme.md'];
-        for (const readme of readmePaths) {
-            const readmePath = path.join(projectPath, readme);
-            if (fs.existsSync(readmePath)) {
-                try {
-                    const readmeContent = fs.readFileSync(readmePath, 'utf8');
-                    // Limit README to first 2000 chars to avoid overwhelming context
-                    contextInfo += `README:\n${readmeContent.substring(0, 2000)}\n\n`;
-                    break;
-                } catch (e) {
-                    console.error('[Gemini] Failed to read README:', e);
-                }
-            }
-        }
-
-        // For Node projects, include package.json info
-        if (context.projectType === 'node') {
-            const pkgPath = path.join(projectPath, 'package.json');
-            if (fs.existsSync(pkgPath)) {
-                try {
-                    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-                    contextInfo += `Package Info:\n`;
-                    contextInfo += `- Name: ${pkg.name}\n`;
-                    contextInfo += `- Version: ${pkg.version}\n`;
-                    contextInfo += `- Description: ${pkg.description || 'N/A'}\n`;
-                    if (pkg.scripts) {
-                        contextInfo += `- Scripts: ${Object.keys(pkg.scripts).join(', ')}\n`;
-                    }
-                    if (pkg.dependencies) {
-                        contextInfo += `- Dependencies: ${Object.keys(pkg.dependencies).slice(0, 10).join(', ')}${Object.keys(pkg.dependencies).length > 10 ? '...' : ''}\n`;
-                    }
-                    contextInfo += '\n';
-                } catch (e) {
-                    console.error('[Gemini] Failed to read package.json:', e);
-                }
-            }
-        }
-
-        // Include recent logs if provided
-        if (context.recentLogs) {
-            contextInfo += `Recent Logs:\n${context.recentLogs}\n\n`;
-        }
-
-        // Build the full prompt
-        const fullPrompt = `${contextInfo}User Question: ${query}`;
-
-        console.log(`[Gemini] Running in directory: ${projectPath}`);
-
-        // Use gemini CLI with positional argument (--prompt is deprecated)
-        // This runs in the project directory and has access to project files
-        // Escape the query for shell safety
-        const escapedQuery = query.replace(/'/g, "'\\''");
-        const child = spawn('/bin/bash', ['-c', `gemini '${escapedQuery}'`], {
-            cwd: projectPath,  // Run in project directory
-            env: process.env
-        });
-
-        let response = '';
-        let errorOutput = '';
-
-        child.stdout.on('data', (data) => {
-            response += data.toString();
-        });
-
-        child.stderr.on('data', (data) => {
-            errorOutput += data.toString();
-        });
-
-        child.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`[Gemini] Error: ${errorOutput}`);
-                reject(`Gemini CLI error: ${errorOutput}`);
-                return;
-            }
-
-            console.log(`[Gemini] Response received (${response.length} chars)`);
-            resolve(response.trim());
-        });
-
-        child.on('error', (err) => {
-            console.error(`[Gemini] Spawn error:`, err);
-            reject(`Failed to execute gemini CLI: ${err.message}`);
-        });
+    child.on('error', (err) => {
+        console.error(`[Gemini] Spawn error:`, err);
+        event.sender.send('gemini:error', `Failed to execute gemini CLI: ${err.message}`);
     });
 });

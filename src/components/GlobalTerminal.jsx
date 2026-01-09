@@ -81,7 +81,31 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
             }
         };
 
+        // Handle paste operations
+        const handleData = (data) => {
+            if (!aiMode) return;
+
+            // Filter out control characters except newlines
+            const printableData = data.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '');
+
+            // If pasting multiple lines, only use the first line
+            const lines = printableData.split(/[\r\n]+/);
+            if (lines.length > 1 && lines[0]) {
+                // Multi-line paste: take first line and execute immediately
+                inputBufferRef.current = lines[0];
+                term.write(lines[0]);
+                term.write('\r\n');
+                handleAiQuery(lines[0], term);
+                inputBufferRef.current = '';
+            } else if (printableData) {
+                // Single line paste: add to buffer
+                inputBufferRef.current += printableData;
+                term.write(printableData);
+            }
+        };
+
         term.onKey(handleKey);
+        term.onData(handleData);
 
         if (window.electronAPI) {
             window.electronAPI.onTerminalOutput(handleOutput);
@@ -119,16 +143,54 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
             const context = {
                 projectType: project?.type || 'unknown',
                 projectName: project?.name,
-                projectPath: project?.path, // Add full path for sandboxing
-                // Could add recent error logs here in future
+                projectPath: project?.path,
             };
 
-            // Query Gemini
-            const response = await window.electronAPI.queryGemini(query, context);
+            // Set up streaming listeners
+            let responseStarted = false;
 
-            // Write AI response in purple
-            term.write(`\x1b[35m${response}\x1b[0m\r\n\r\n`);
-            term.write('\x1b[35m❯\x1b[0m ');
+            const handleData = (data) => {
+                if (!responseStarted) {
+                    // Clear "Querying Gemini..." line
+                    term.write('\r\x1b[K');
+                    responseStarted = true;
+                }
+                // Write response in purple as it arrives
+                term.write(`\x1b[35m${data}\x1b[0m`);
+            };
+
+            const handleError = (error) => {
+                term.write(`\r\n\x1b[31mError: ${error}\x1b[0m\r\n`);
+                term.write('\x1b[35m❯\x1b[0m ');
+                cleanup();
+            };
+
+            const handleComplete = () => {
+                term.write('\r\n\r\n\x1b[35m❯\x1b[0m ');
+                cleanup();
+            };
+
+            const cleanup = () => {
+                // Remove event listeners after completion
+                if (window.electronAPI.onGeminiData) {
+                    window.electronAPI.onGeminiData(() => { });
+                }
+                if (window.electronAPI.onGeminiError) {
+                    window.electronAPI.onGeminiError(() => { });
+                }
+                if (window.electronAPI.onGeminiComplete) {
+                    window.electronAPI.onGeminiComplete(() => { });
+                }
+            };
+
+            // Attach listeners
+            window.electronAPI.onGeminiData(handleData);
+            window.electronAPI.onGeminiError(handleError);
+            window.electronAPI.onGeminiComplete(handleComplete);
+
+            // Start query (non-blocking)
+            window.electronAPI.queryGemini(query, context);
+
         } catch (error) {
             term.write(`\x1b[31mError: ${error.message || error}\x1b[0m\r\n`);
             term.write('\x1b[35m❯\x1b[0m ');

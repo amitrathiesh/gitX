@@ -19,7 +19,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onStatusChange: (callback) => ipcRenderer.on('project:status-change', (event, value) => callback(value)),
     onPortDetected: (callback) => ipcRenderer.on('project:port-detected', (event, value) => callback(value)),
 
-    // Gemini CLI
+    // Gemini CLI (streaming)
     checkGeminiAvailable: () => ipcRenderer.invoke('gemini:check-available'),
-    queryGemini: (query, context) => ipcRenderer.invoke('gemini:query', query, context),
+    queryGemini: (query, context) => ipcRenderer.send('gemini:query', query, context),
+    onGeminiData: (callback) => ipcRenderer.on('gemini:data', (event, data) => callback(data)),
+    onGeminiError: (callback) => ipcRenderer.on('gemini:error', (event, error) => callback(error)),
+    onGeminiComplete: (callback) => ipcRenderer.on('gemini:complete', () => callback()),
 });
