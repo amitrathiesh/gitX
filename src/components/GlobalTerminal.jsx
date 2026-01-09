@@ -9,8 +9,14 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
     const xtermRef = useRef(null);
     const fitAddonRef = useRef(null);
     const [aiMode, setAiMode] = useState(false);
+    const aiModeRef = useRef(false);
     const [currentInput, setCurrentInput] = useState('');
     const inputBufferRef = useRef('');
+
+    // Keep ref in sync
+    useEffect(() => {
+        aiModeRef.current = aiMode;
+    }, [aiMode]);
 
     useEffect(() => {
         if (!terminalRef.current) return;
@@ -19,9 +25,10 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
         const term = new XTerm({
             cursorBlink: true,
             theme: {
-                background: '#0f172a',
-                foreground: '#e2e8f0',
-                cursor: aiMode ? '#a855f7' : '#64748b',
+                background: '#0a0a0a', // Almost black
+                foreground: '#ffffff', // Pure white
+                cursor: aiMode ? '#a855f7' : '#ffffff',
+                selection: '#5b5b5b',
             },
             fontSize: 12,
             fontFamily: 'Menlo, Monaco, "Courier New", monospace',
@@ -42,64 +49,74 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
         xtermRef.current = term;
         fitAddonRef.current = fitAddon;
 
-        // Show AI mode indicator
-        if (aiMode) {
-            term.write('\r\n\x1b[35m[AI Mode Active - Type your question and press Enter]\x1b[0m\r\n');
-            term.write('\x1b[35m❯\x1b[0m ');
+        // Start persistent shell
+        if (window.electronAPI && window.electronAPI.startShell) {
+            window.electronAPI.startShell(project.path);
         }
 
-        // Listen for terminal output from project
+        // Show AI mode indicator (initial check)
+        if (aiModeRef.current) {
+            term.write('\r\n\x1b[36mGemini: Type your question and press Enter\x1b[0m\r\n');
+            term.write('\x1b[36m❯\x1b[0m ');
+        }
+
+        // Listen for terminal output from project (backend shell or process)
         const handleOutput = (data) => {
-            if (!aiMode && data.projectId === project?.path) {
+            console.log('[GlobalTerminal] Output:', data);
+            if (!aiModeRef.current && data.projectId === project?.path) {
                 term.write(data.data);
             }
         };
 
-
-
-
-        // Handle all user input in AI mode
         const handleData = (data) => {
-            if (!aiMode) return;
+            // Priority: AI Mode intercepts all input
+            if (aiModeRef.current) {
+                // Check first character code for special handling
+                const firstCode = data.charCodeAt(0);
 
-            // Check first character code for special handling
-            const firstCode = data.charCodeAt(0);
+                // Enter key
+                if (firstCode === 13) {
+                    const query = inputBufferRef.current.trim();
+                    if (query) {
+                        term.write('\r\n');
+                        // Call AI handler
+                        const termRef = xtermRef.current; // access term via ref if needed, or closure term
+                        handleAiQuery(query, term);
+                        inputBufferRef.current = '';
+                    } else {
+                        term.write('\r\n\x1b[35m❯\x1b[0m ');
+                    }
+                    return;
+                }
 
-            // Enter key
-            if (firstCode === 13) {
-                const query = inputBufferRef.current.trim();
-                if (query) {
-                    term.write('\r\n');
-                    handleAiQuery(query, term);
+                // Backspace/Delete (Simple local echo handling)
+                if (firstCode === 127 || firstCode === 8) {
+                    if (inputBufferRef.current.length > 0) {
+                        inputBufferRef.current = inputBufferRef.current.slice(0, -1);
+                        term.write('\b \b');
+                    }
+                    return;
+                }
+
+                // Ctrl+C (Abort AI input)
+                if (firstCode === 3) {
                     inputBufferRef.current = '';
-                } else {
-                    term.write('\r\n\x1b[35m❯\x1b[0m ');
+                    term.write('^C\r\n\x1b[35m❯\x1b[0m ');
+                    return;
                 }
-                return;
-            }
 
-            // Backspace/Delete
-            if (firstCode === 127 || firstCode === 8) {
-                if (inputBufferRef.current.length > 0) {
-                    inputBufferRef.current = inputBufferRef.current.slice(0, -1);
-                    term.write('\b \b');
+                // Ignore other control characters
+                if (firstCode < 32) return;
+
+                // Local echo for AI input
+                inputBufferRef.current += data;
+                term.write(data);
+            } else {
+                // Normal Mode: Send input to backend shell
+                if (window.electronAPI && window.electronAPI.sendInput) {
+                    window.electronAPI.sendInput(data);
                 }
-                return;
             }
-
-            // Ctrl+C
-            if (firstCode === 3) {
-                inputBufferRef.current = '';
-                term.write('^C\r\n\x1b[35m❯\x1b[0m ');
-                return;
-            }
-
-            // Ignore other control characters (but keep printable)
-            if (firstCode < 32) return;
-
-            // Regular character or paste - just add and display
-            inputBufferRef.current += data;
-            term.write(data);
         };
 
         term.onData(handleData);
@@ -115,12 +132,20 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
         };
 
         window.addEventListener('resize', handleResize);
+        const resizeObserver = new ResizeObserver(() => handleResize());
+        if (terminalRef.current) {
+            resizeObserver.observe(terminalRef.current);
+        }
 
         return () => {
             term.dispose();
             window.removeEventListener('resize', handleResize);
+            resizeObserver.disconnect();
+            if (window.electronAPI.removeTerminalListener) {
+                window.electronAPI.removeTerminalListener();
+            }
         };
-    }, [project, aiMode]);
+    }, [project.path]);
 
     const handleAiQuery = async (query, term) => {
         if (!window.electronAPI) return;
@@ -132,7 +157,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
 
             if (!available) {
                 term.write('\x1b[31mError: Gemini CLI not installed\x1b[0m\r\n');
-                term.write('\x1b[35m❯\x1b[0m ');
+                term.write('\x1b[36m❯\x1b[0m ');
                 return;
             }
 
@@ -160,16 +185,21 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
 
                         if (match) {
                             const command = match[1];
-                            term.write(`\r\n\x1b[36m[Auto-Running: ${command}]\x1b[0m\r\n`);
+                            term.write(`\r\n\x1b[36mAuto-Running: ${command}\x1b[0m\r\n`);
                             // Small delay to let user see the message
                             setTimeout(() => {
-                                handleToggleAiMode(); // Switch to normal mode (so they see output)
+                                handleToggleAiMode(false); // Force switch to normal mode explicit
                                 if (window.electronAPI.executeCommand) {
                                     window.electronAPI.executeCommand(command, context.projectPath);
+
+                                    // Trigger status check after 3 seconds (allow server boot time)
+                                    if (window.electronAPI.checkAllStatuses) {
+                                        setTimeout(() => window.electronAPI.checkAllStatuses(), 3000);
+                                    }
                                 }
                             }, 800);
                         } else {
-                            term.write('\r\n\r\n\x1b[35m❯\x1b[0m ');
+                            term.write('\r\n\r\n\x1b[36m❯\x1b[0m ');
                         }
 
                         cleanup();
@@ -185,7 +215,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 const chunk = streamingBufferRef.current.slice(0, chunkSize);
                 streamingBufferRef.current = streamingBufferRef.current.slice(chunkSize);
 
-                term.write(`\x1b[35m${chunk}\x1b[0m`);
+                term.write(`\x1b[36m${chunk}\x1b[0m`);
             };
 
             const handleData = (data) => {
@@ -204,7 +234,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
             const handleError = (error) => {
                 if (streamInterval) clearInterval(streamInterval);
                 term.write(`\r\n\x1b[31mError: ${error}\x1b[0m\r\n`);
-                term.write('\x1b[35m❯\x1b[0m ');
+                term.write('\x1b[36m❯\x1b[0m ');
                 cleanup();
             };
 
@@ -237,7 +267,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
 
         } catch (error) {
             term.write(`\x1b[31mError: ${error.message || error}\x1b[0m\r\n`);
-            term.write('\x1b[35m❯\x1b[0m ');
+            term.write('\x1b[36m❯\x1b[0m ');
         }
     };
 
@@ -250,15 +280,19 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
         }
     };
 
-    const handleToggleAiMode = () => {
-        const newMode = !aiMode;
+    const handleToggleAiMode = (overrideMode = null) => {
+        const newMode = overrideMode !== null ? overrideMode : !aiMode;
         setAiMode(newMode);
+        aiModeRef.current = newMode;
 
         if (xtermRef.current) {
-            xtermRef.current.clear();
+            // Don't clear history! Let it persist.
             if (newMode) {
-                xtermRef.current.write('\r\n\x1b[35m[AI Mode Active - Type your question and press Enter]\x1b[0m\r\n');
-                xtermRef.current.write('\x1b[35m❯\x1b[0m ');
+                xtermRef.current.write('\r\n\x1b[36mGemini: Type your question and press Enter\x1b[0m\r\n');
+                xtermRef.current.write('\x1b[36m❯\x1b[0m ');
+            } else {
+                // Returning to shell
+                xtermRef.current.write('\r\n\x1b[36mNormal Mode\x1b[0m\r\n');
             }
         }
 
@@ -280,7 +314,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 <div className="flex items-center gap-2">
                     {/* AI Mode Toggle */}
                     <button
-                        onClick={handleToggleAiMode}
+                        onClick={() => handleToggleAiMode()}
                         className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${aiMode
                             ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                             : 'bg-secondary text-muted-foreground hover:bg-secondary/80'
@@ -310,7 +344,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
             </div>
 
             {/* Terminal */}
-            <div ref={terminalRef} className="flex-1 p-2" />
+            <div ref={terminalRef} className="flex-1 overflow-hidden bg-black" />
         </div>
     );
 };

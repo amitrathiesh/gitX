@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const { exec, spawn } = require('child_process');
@@ -20,6 +20,38 @@ const store = new Store();
 
 // Track running processes by project path
 const runningProcesses = new Map();
+
+// Local Project Import
+ipcMain.handle('project:select-local', async () => {
+    const result = await dialog.showOpenDialog({
+        properties: ['openDirectory']
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    const projectPath = result.filePaths[0];
+    let projectName = path.basename(projectPath);
+
+    // Try to read package.json for name
+    try {
+        const pkgPath = path.join(projectPath, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+            if (pkg.name) projectName = pkg.name;
+        }
+    } catch (e) {
+        console.error('Failed to read package.json during import', e);
+    }
+
+    return { path: projectPath, name: projectName };
+});
+
+// Open URL in external browser
+ipcMain.handle('app:open-external', async (event, url) => {
+    await shell.openExternal(url);
+});
 
 function createWindow() {
     const win = new BrowserWindow({
@@ -47,7 +79,117 @@ function createWindow() {
     // win.webContents.openDevTools();
 }
 
+app.setName('gitX');
+
 app.whenReady().then(() => {
+    // Set up application menu (required for Copy/Paste on macOS)
+    const isMac = process.platform === 'darwin';
+
+    const template = [
+        // App Menu (macOS)
+        ...(isMac ? [{
+            label: app.name,
+            submenu: [
+                { role: 'about' },
+                { type: 'separator' },
+                { role: 'services' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { role: 'quit' }
+            ]
+        }] : []),
+        // File
+        {
+            label: 'File',
+            submenu: [
+                isMac ? { role: 'close' } : { role: 'quit' }
+            ]
+        },
+        // Edit
+        {
+            label: 'Edit',
+            submenu: [
+                { role: 'undo' },
+                { role: 'redo' },
+                { type: 'separator' },
+                { role: 'cut' },
+                { role: 'copy' },
+                { role: 'paste' },
+                { role: 'delete' },
+                { role: 'selectAll' }
+            ]
+        },
+        // View
+        {
+            label: 'View',
+            submenu: [
+                { role: 'reload' },
+                { role: 'forceReload' },
+                { role: 'toggleDevTools' },
+                { type: 'separator' },
+                { role: 'resetZoom' },
+                { role: 'zoomIn' },
+                { role: 'zoomOut' },
+                { type: 'separator' },
+                { role: 'togglefullscreen' }
+            ]
+        },
+        // Window
+        {
+            label: 'Window',
+            submenu: [
+                { role: 'minimize' },
+                { role: 'zoom' },
+                ...(isMac ? [
+                    { type: 'separator' },
+                    { role: 'front' },
+                    { type: 'separator' },
+                    { role: 'window' }
+                ] : [
+                    { role: 'close' }
+                ])
+            ]
+        },
+        // Project
+        {
+            label: 'Project',
+            submenu: [
+                {
+                    label: 'Add Project from URL...',
+                    accelerator: 'CmdOrCtrl+N',
+                    click: (item, focusedWindow) => {
+                        if (focusedWindow) focusedWindow.webContents.send('menu:add-url');
+                    }
+                },
+                {
+                    label: 'Import Local Folder...',
+                    accelerator: 'CmdOrCtrl+O',
+                    click: (item, focusedWindow) => {
+                        if (focusedWindow) focusedWindow.webContents.send('menu:import-local');
+                    }
+                }
+            ]
+        },
+        {
+            role: 'help',
+            submenu: [
+                {
+                    label: 'Learn More',
+                    click: async () => {
+                        const { shell } = require('electron');
+                        await shell.openExternal('https://electronjs.org');
+                    }
+                }
+            ]
+        }
+    ];
+
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+
     createWindow();
 
     app.on('activate', () => {
@@ -269,7 +411,8 @@ ipcMain.handle('project:get-branch', async (event, project) => {
 });
 
 // Run with Script Support and Port Detection
-ipcMain.on('project:run', (event, project, scriptName = null) => {
+// Run with Script Support and Port Detection
+ipcMain.on('project:run', (event, project, scriptName = null, options = {}) => {
     // Determine command based on type
     let cmd = '';
     let args = [];
@@ -289,7 +432,18 @@ ipcMain.on('project:run', (event, project, scriptName = null) => {
         args = ['start'];
     }
 
-    const child = spawn(cmd, args, { cwd: project.path, shell: true });
+    // Prepare Environment
+    const env = {
+        ...process.env,
+        TERM: 'xterm-256color',
+        FORCE_COLOR: '1',
+        PYTHONUNBUFFERED: '1', // For Python
+    };
+    if (options && options.port) {
+        env.PORT = options.port;
+    }
+
+    const child = spawn(cmd, args, { cwd: project.path, shell: true, env });
 
     // Store process for stopping later
     runningProcesses.set(project.path, child);
@@ -304,14 +458,44 @@ ipcMain.on('project:run', (event, project, scriptName = null) => {
         }
     };
 
+    // Clean terminal output by removing diagnostic markers
+    const cleanTerminalOutput = (data) => {
+        const lines = data.toString().split('\n');
+        const cleaned = lines.filter(line => {
+            // Remove lines that are purely diagnostic markers
+            // Pattern 1: Lines like "   |    ^" or "639|    ^"
+            if (/^\s*\d*\|?\s*[\^|]+\s*$/.test(line)) return false;
+
+            // Pattern 2: Lines that start with line number and only contain whitespace
+            if (/^\d+\|\s*$/.test(line)) return false;
+
+            // Pattern 3: Lines with whitespace, pipe, then markers (like "   |  ^^")
+            if (/^\s+\|\s*[\^|]+\s*$/.test(line)) return false;
+
+            // Pattern 4: Lines that are primarily marker characters (> 50% of non-whitespace)
+            const withoutWhitespace = line.replace(/\s/g, '');
+            const markerCount = (withoutWhitespace.match(/[\^|]/g) || []).length;
+            if (markerCount > withoutWhitespace.length * 0.5) return false;
+
+            return true;
+        });
+        return cleaned.join('\n');
+    };
+
     child.stdout.on('data', (data) => {
         scanForPort(data);
-        event.sender.send('terminal-output', { projectId: project.path, data: data.toString() });
+        const cleaned = cleanTerminalOutput(data);
+        if (cleaned.trim()) { // Only send non-empty output
+            event.sender.send('terminal-output', { projectId: project.path, data: cleaned });
+        }
     });
 
     child.stderr.on('data', (data) => {
         scanForPort(data);
-        event.sender.send('terminal-output', { projectId: project.path, data: data.toString() });
+        const cleaned = cleanTerminalOutput(data);
+        if (cleaned.trim()) { // Only send non-empty output
+            event.sender.send('terminal-output', { projectId: project.path, data: cleaned });
+        }
     });
 
     child.on('close', (code) => {
@@ -325,50 +509,117 @@ ipcMain.on('project:run', (event, project, scriptName = null) => {
 });
 
 // Stop Project
+// Stop Project
 ipcMain.on('project:stop', (event, project) => {
+    let killed = false;
     const child = runningProcesses.get(project.path);
+
+    // 1. Try killing internal child process
     if (child) {
-        console.log(`[Stop] Killing process for ${project.name}`);
-        // Kill the process and all its children
+        console.log(`[Stop] Killing internal process for ${project.name}`);
         child.kill('SIGTERM');
+        runningProcesses.delete(project.path);
+        killed = true;
+    }
 
-        // Force kill after 2 seconds if still running
-        setTimeout(() => {
-            if (runningProcesses.has(project.path)) {
-                child.kill('SIGKILL');
-                runningProcesses.delete(project.path);
+    // 2. Try killing by Port (Ghost Process) if not found internally
+    if (!killed) {
+        // Look up up-to-date port from store
+        const storedProjects = store.get('projects', []);
+        const storedProject = storedProjects.find(p => p.path === project.path);
+        const port = storedProject?.port || project.port;
+
+        if (port) {
+            console.log(`[Stop] Attempting to kill ghost process on port ${port}`);
+            try {
+                // Find PID listening on this port
+                // lsof -t (terse) -i:PORT -sTCP:LISTEN
+                const pid = require('child_process').execSync(`lsof -t -i:${port} -sTCP:LISTEN`).toString().trim();
+                if (pid) {
+                    // Force kill
+                    require('child_process').execSync(`kill -9 ${pid}`);
+                    console.log(`[Stop] Killed PID ${pid}`);
+                    killed = true;
+                }
+            } catch (e) {
+                console.warn(`[Stop] Should check port ${port}, but lsof/kill failed or empty: ${e.message}`);
             }
-        }, 2000);
+        }
+    }
 
-        event.sender.send('terminal-output', { projectId: project.path, data: '\n[Stopped by user]\n' });
-        event.sender.send('project:status-change', { projectId: project.path, status: 'stopped' });
-    } else {
-        console.log(`[Stop] No running process found for ${project.name}`);
+    // 3. Cleanup and Notify
+    // Always mark stopped if we attempted to kill something or if user requested it
+    event.sender.send('terminal-output', { projectId: project.path, data: '\n[Process Stopped]\n' });
+    event.sender.send('project:status-change', { projectId: project.path, status: 'stopped' });
+
+    // Update persistence
+    const projects = store.get('projects', []);
+    const pIndex = projects.findIndex(p => p.path === project.path);
+    if (pIndex > -1) {
+        projects[pIndex].status = 'stopped';
+        projects[pIndex].port = null;
+        store.set('projects', projects);
     }
 });
 
-// Execute arbitrary command (for AI)
-ipcMain.on('terminal:execute', (event, command, projectPath) => {
-    console.log(`[Execute] Running: ${command} in ${projectPath}`);
-    event.sender.send('terminal-output', { projectId: projectPath, data: `\n> ${command}\n` });
+// Persistent Shell Session
+let globalShell = null;
 
-    const child = spawn(command, {
+// Start Persistent Shell
+ipcMain.on('terminal:start-shell', (event, projectPath) => {
+    if (globalShell) {
+        try { globalShell.kill(); } catch (e) { }
+    }
+
+    console.log(`[Terminal] Starting shell in ${projectPath}`);
+
+    // Spawn a shell (zsh on mac, bash/cmd fallback)
+    const shellCmd = process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh';
+
+    globalShell = spawn(shellCmd, [], {
         cwd: projectPath,
-        shell: true,
         env: { ...process.env, FORCE_COLOR: '1' }
     });
 
-    child.stdout.on('data', (data) => {
+    globalShell.stdout.on('data', (data) => {
         event.sender.send('terminal-output', { projectId: projectPath, data: data.toString() });
     });
 
-    child.stderr.on('data', (data) => {
+    globalShell.stderr.on('data', (data) => {
         event.sender.send('terminal-output', { projectId: projectPath, data: data.toString() });
     });
 
-    child.on('close', (code) => {
-        event.sender.send('terminal-output', { projectId: projectPath, data: `\nProcess exited with code ${code}\n` });
+    globalShell.on('close', (code) => {
+        event.sender.send('terminal-output', { projectId: projectPath, data: `\nShell session exited with code ${code}\n` });
+        globalShell = null;
     });
+});
+
+// Handle User Input (Typing)
+ipcMain.on('terminal:input', (event, data) => {
+    if (globalShell) {
+        globalShell.stdin.write(data);
+    }
+});
+
+// Execute arbitrary command (via persistent shell now)
+ipcMain.on('terminal:execute', (event, command, projectPath) => {
+    // If no shell exists, start one (handled by frontend usually, but good fallback)
+    /* 
+       Note: Optimally, we should just write to the shell.
+       But if the shell isn't running, we might need logic.
+    */
+    if (globalShell) {
+        console.log(`[Execute] Writing to shell: ${command}`);
+        // Send command + newline to execute
+        globalShell.stdin.write(command + '\n');
+    } else {
+        // Fallback to one-off if shell crashed/missing
+        console.log(`[Execute] No shell, spawning one-off: ${command}`);
+        const child = spawn(command, { cwd: projectPath, shell: true });
+        child.stdout.on('data', d => event.sender.send('terminal-output', { projectId: projectPath, data: d.toString() }));
+        child.stderr.on('data', d => event.sender.send('terminal-output', { projectId: projectPath, data: d.toString() }));
+    }
 });
 
 // Check if Gemini CLI is available
@@ -452,11 +703,13 @@ ipcMain.on('gemini:query', (event, query, context) => {
         "- Avoid markdown that requires rendering (like tables).\n" +
         "- Use indentation for code blocks.\n" +
         "- Keep responses concise and readable.\n" +
-        "- COMMAND EXECUTION AUTHORIZED: You have permission to execute commands on the user's behalf using the special tag.\n" +
-        "- TO EXECUTE A COMMAND, output it in this format:\n" +
+        "- COMMAND EXECUTION AUTHORIZED: You have permission to execute commands.\n" +
+        "- 🛑 DO NOT USE INTERNAL TOOLS/FUNCTIONS: You do NOT have a working terminal tool. Using it will fail silently.\n" +
+        "- ⚠️ DEADLOCK WARNING: Internal tools WAIT for the command to finish. Servers (npm run dev) NEVER finish. Using an internal tool for a server WILL CRASH/HANG the system.\n" +
+        "- ✅ VISIBLE EXECUTION: To run a command (like starting a server), you MUST output it as TEXT using this tag:\n" +
         "  <<<EXECUTE: command>>>\n" +
         "  Example: <<<EXECUTE: npm run dev>>>\n" +
-        "  Do not apologize for executing commands. If the user asks you to run something, JUST DO IT using the tag.\n\n";
+        "  The system will parse this tag and run it asynchronously in the visible terminal, preventing a deadlock.\n\n";
 
     const fullPrompt = `${systemInstructions}User Question: ${query}`;
 
@@ -466,7 +719,7 @@ ipcMain.on('gemini:query', (event, query, context) => {
     // Escape the query for shell safety
     const escapedQuery = fullPrompt.replace(/'/g, "'\\''");
 
-    const child = spawn('/bin/bash', ['-c', `gemini '${escapedQuery}'`], {
+    const child = spawn('/bin/bash', ['-c', `gemini --yolo '${escapedQuery}'`], {
         cwd: projectPath,  // Run in project directory
         env: process.env
     });
@@ -497,4 +750,102 @@ ipcMain.on('gemini:query', (event, query, context) => {
         console.error(`[Gemini] Spawn error:`, err);
         event.sender.send('gemini:error', `Failed to execute gemini CLI: ${err.message}`);
     });
+});
+
+// Check all project statuses (detect ghost processes)
+ipcMain.handle('project:check-all-statuses', async (event) => {
+    return new Promise((resolve) => {
+        // 1. Get CWD of ALL processes
+        exec('lsof -d cwd -F n', { maxBuffer: 1024 * 1024 * 10 }, async (err, stdout) => {
+            if (err && err.code !== 1) {
+                console.error('[StatusCheck] lsof cwd failed:', err);
+                resolve(store.get('projects', []));
+                return;
+            }
+
+            const pidToCwd = new Map();
+            const raw = stdout || '';
+            const lines = raw.split('\n');
+            let currentPid = null;
+
+            for (const line of lines) {
+                if (line.startsWith('p')) {
+                    currentPid = line.substring(1);
+                } else if (line.startsWith('n') && currentPid) {
+                    const cwd = line.substring(1);
+                    pidToCwd.set(currentPid, cwd);
+                }
+            }
+
+            const projects = store.get('projects', []);
+            const projectPids = [];
+
+            projects.forEach((p, index) => {
+                for (const [pid, cwd] of pidToCwd.entries()) {
+                    if (cwd === p.path || cwd.startsWith(p.path + '/')) {
+                        projectPids.push({ pid, projectPath: p.path, projectIndex: index });
+                    }
+                }
+            });
+
+            if (projectPids.length === 0) {
+                resolve(projects);
+                return;
+            }
+
+            const pidsList = projectPids.map(x => x.pid).join(',');
+            exec(`lsof -p ${pidsList} -i -P -n -F n`, (err2, stdout2) => {
+                const pidToPort = new Map();
+                if (!err2 && stdout2) {
+                    const lines2 = stdout2.split('\n');
+                    let currPid2 = null;
+                    for (const line of lines2) {
+                        if (line.startsWith('p')) currPid2 = line.substring(1);
+                        else if (line.startsWith('n') && currPid2) {
+                            const parts = line.substring(1).split(':');
+                            const port = parts[parts.length - 1];
+                            if (port && !isNaN(port)) {
+                                pidToPort.set(currPid2, port);
+                            }
+                        }
+                    }
+                }
+
+                let changed = false;
+                projects.forEach(p => {
+                    const relevantPids = projectPids.filter(x => x.projectPath === p.path);
+                    const activePid = relevantPids.find(x => pidToPort.has(x.pid));
+
+                    if (activePid) {
+                        const newPort = pidToPort.get(activePid.pid);
+                        if (p.status !== 'running' || p.port !== newPort) {
+                            p.status = 'running';
+                            p.port = newPort;
+                            changed = true;
+                            event.sender.send('project:status-change', { projectId: p.path, status: 'running' });
+                            event.sender.send('port-detected', { projectId: p.path, port: newPort });
+                        }
+                    } else if (p.status === 'running' && !runningProcesses.has(p.path)) {
+                        p.status = 'stopped';
+                        p.port = null;
+                        changed = true;
+                        event.sender.send('project:status-change', { projectId: p.path, status: 'stopped' });
+                    }
+                });
+
+                if (changed) {
+                    store.set('projects', projects);
+                }
+                resolve(projects);
+            });
+        });
+    });
+
+    // Local Project Import moved to top level
+});
+
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
 });

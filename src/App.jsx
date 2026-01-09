@@ -53,7 +53,7 @@ function App() {
     }, [isResizing]);
 
     return (
-        <div className={`min-h-screen bg-background text-foreground font-sans flex flex-col ${theme}`}>
+        <div className={`h-screen overflow-hidden bg-background text-foreground font-sans flex flex-col ${theme}`}>
             {/* Draggable Title Bar */}
             <div className="h-10 bg-background/80 backdrop-blur-md border-b border-border sticky top-0 z-50 flex items-center justify-between pl-20 pr-4 draggable select-none">
                 <div className="font-semibold text-sm tracking-tight flex items-center gap-2">
@@ -92,7 +92,7 @@ function App() {
 
                 {/* Terminal Sidebar with Resize Handle */}
                 {terminalVisible && (
-                    <div className="relative" style={{ width: `${terminalWidth}px` }}>
+                    <div className="relative h-full flex flex-col border-l border-border bg-card" style={{ width: `${terminalWidth}px` }}>
                         {/* Resize Handle */}
                         <div
                             className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 transition-colors z-50"

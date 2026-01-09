@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Search } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Search, RefreshCw, FolderInput } from 'lucide-react';
 import ProjectRow from './ProjectRow';
 
 const Dashboard = ({ onProjectSelect }) => {
@@ -8,6 +8,7 @@ const Dashboard = ({ onProjectSelect }) => {
     const [loading, setLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [targetDir, setTargetDir] = useState('/Users/amitrathiesh/Projects');
+    const urlInputRef = useRef(null);
 
     useEffect(() => {
         loadProjects();
@@ -17,13 +18,43 @@ const Dashboard = ({ onProjectSelect }) => {
             window.electronAPI.onStatusChange(({ projectId, status }) => {
                 setProjects(prev => prev.map(p => p.path === projectId ? { ...p, status } : p));
             });
+
+            // Menu Handlers
+            if (window.electronAPI.onMenuAddUrl) {
+                window.electronAPI.onMenuAddUrl(() => {
+                    if (urlInputRef.current) urlInputRef.current.focus();
+                });
+            }
+            if (window.electronAPI.onMenuImportLocal) {
+                window.electronAPI.onMenuImportLocal(() => {
+                    handleImportLocal();
+                });
+            }
         }
+
+        // Auto-poll status every 10s (Ghost Process detection)
+        const interval = setInterval(() => {
+            if (window.electronAPI?.checkAllStatuses) {
+                window.electronAPI.checkAllStatuses().then(updatedList => {
+                    if (updatedList) setProjects(updatedList);
+                });
+            }
+        }, 10000);
+
+        return () => clearInterval(interval);
     }, []);
 
     const loadProjects = async () => {
         if (window.electronAPI) {
             const list = await window.electronAPI.listProjects();
             setProjects(list);
+
+            // Sync status (detect ghost processes)
+            if (window.electronAPI.checkAllStatuses) {
+                window.electronAPI.checkAllStatuses().then(updatedList => {
+                    if (updatedList) setProjects(updatedList);
+                });
+            }
         }
     };
 
@@ -59,8 +90,45 @@ const Dashboard = ({ onProjectSelect }) => {
         }
     };
 
-    const handleRun = (project, scriptName) => {
-        window.electronAPI.runProject(project, scriptName);
+    const handleImportLocal = async () => {
+        if (!window.electronAPI) return;
+
+        try {
+            const result = await window.electronAPI.selectLocalProject();
+            if (result) {
+                setLoading(true);
+                // Create project object
+                const project = {
+                    name: result.name,
+                    path: result.path,
+                    url: 'local',
+                    type: 'unknown',
+                    branch: 'main',
+                    status: 'stopped'
+                };
+
+                await window.electronAPI.addProject(project); // Add to store
+
+                // Detect type
+                const type = await window.electronAPI.detectType(project.path);
+                const updated = { ...project, type };
+
+                // Install dependencies
+                console.log('Installing dependencies for local project...');
+                await window.electronAPI.installProject(updated);
+
+                loadProjects();
+            }
+        } catch (e) {
+            console.error('Import failed', e);
+            alert('Import failed: ' + e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleRun = (project, scriptName, options) => {
+        window.electronAPI.runProject(project, scriptName, options);
         // Select this project in terminal
         if (onProjectSelect) onProjectSelect(project);
     };
@@ -129,6 +197,7 @@ const Dashboard = ({ onProjectSelect }) => {
             <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
                 <form onSubmit={handleAddProject} className="flex gap-4">
                     <input
+                        ref={urlInputRef}
                         type="text"
                         value={repoUrl}
                         onChange={(e) => setRepoUrl(e.target.value)}
@@ -149,6 +218,24 @@ const Dashboard = ({ onProjectSelect }) => {
                     >
                         <Plus size={18} />
                         {loading ? 'Cloning...' : 'Add Project'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleImportLocal}
+                        disabled={loading}
+                        className="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-2 flex items-center gap-2 non-draggable disabled:opacity-50"
+                        title="Import Local Folder"
+                    >
+                        <FolderInput size={18} />
+                        Import
+                    </button>
+                    <button
+                        type="button"
+                        onClick={loadProjects}
+                        className="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-2 non-draggable"
+                        title="Refresh Project Status"
+                    >
+                        <RefreshCw size={18} />
                     </button>
                 </form>
             </div>

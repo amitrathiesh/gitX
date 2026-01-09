@@ -6,6 +6,7 @@ const ProjectRow = ({ project, onRun, onStop, onUpdate, onOpenFolder, onDelete, 
     const [selectedScript, setSelectedScript] = useState('');
     const [branch, setBranch] = useState('');
     const [port, setPort] = useState(null);
+    const [customPort, setCustomPort] = useState('');
     const [updating, setUpdating] = useState(false);
 
     useEffect(() => {
@@ -33,7 +34,8 @@ const ProjectRow = ({ project, onRun, onStop, onUpdate, onOpenFolder, onDelete, 
     }, [project]);
 
     const handleRun = () => {
-        onRun(project, selectedScript);
+        const options = customPort ? { port: customPort } : {};
+        onRun(project, selectedScript, options);
     };
 
     const handleUpdate = async () => {
@@ -79,18 +81,33 @@ const ProjectRow = ({ project, onRun, onStop, onUpdate, onOpenFolder, onDelete, 
                 {branch && (
                     <div className="flex items-center gap-1 text-sm text-blue-400">
                         <GitBranch size={14} />
-                        <span>{branch}</span>
+                        <span>{branch === 'unknown' ? 'local' : branch}</span>
                     </div>
                 )}
             </td>
 
             {/* Port */}
-            <td className="py-3 px-4">
-                {port && (
-                    <div className="flex items-center gap-1 text-sm text-purple-400">
-                        <Server size={14} />
-                        <span>:{port}</span>
-                    </div>
+            <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                {project.status === 'running' ? (
+                    port && (
+                        <div
+                            className="flex items-center gap-1 text-sm text-purple-400 hover:text-purple-300 hover:underline cursor-pointer transition-colors"
+                            onClick={() => window.electronAPI && window.electronAPI.openExternal(`http://localhost:${port}`)}
+                            title={`Open http://localhost:${port}`}
+                        >
+                            <Server size={14} />
+                            <span>:{port}</span>
+                        </div>
+                    )
+                ) : (
+                    <input
+                        type="text"
+                        placeholder="Port..."
+                        value={customPort}
+                        onChange={(e) => setCustomPort(e.target.value)}
+                        className="bg-background/50 border border-border rounded px-2 py-1 text-xs w-20 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-purple-500 transition-colors"
+                        title="Custom Port (Optional)"
+                    />
                 )}
             </td>
 
@@ -111,7 +128,7 @@ const ProjectRow = ({ project, onRun, onStop, onUpdate, onOpenFolder, onDelete, 
                             setSelectedScript(e.target.value);
                         }}
                         onClick={(e) => e.stopPropagation()}
-                        className="bg-background border border-border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                        className="bg-background border border-border rounded px-2 py-1 text-xs w-32 focus:outline-none focus:ring-1 focus:ring-ring"
                     >
                         {Object.keys(scripts).map(s => (
                             <option key={s} value={s}>{s}</option>
