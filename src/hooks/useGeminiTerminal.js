@@ -5,10 +5,10 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
     const aiModeRef = useRef(false);
     const inputBufferRef = useRef('');
 
-    // Load AI history from localStorage on mount
+    // Load AI history from sessionStorage on mount (clears on app close)
     const getStorageKey = () => project?.path ? `gitx-ai-history-${project.path}` : null;
     const aiHistoryRef = useRef(
-        (getStorageKey() && localStorage.getItem(getStorageKey())) || ''
+        (getStorageKey() && sessionStorage.getItem(getStorageKey())) || ''
     );
 
     // Keep ref in sync
@@ -16,12 +16,12 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
         aiModeRef.current = aiMode;
     }, [aiMode]);
 
-    // Save AI history to localStorage whenever it changes
+    // Save AI history to sessionStorage whenever it changes
     const saveAiHistory = (text) => {
         aiHistoryRef.current += text;
         const key = getStorageKey();
         if (key) {
-            localStorage.setItem(key, aiHistoryRef.current);
+            sessionStorage.setItem(key, aiHistoryRef.current);
         }
     };
 
@@ -246,7 +246,7 @@ export const useGeminiTerminal = (terminalRef, project, onToggleMode) => {
         clearAiHistory: () => {
             aiHistoryRef.current = '';
             const key = getStorageKey();
-            if (key) localStorage.removeItem(key);
+            if (key) sessionStorage.removeItem(key);
         }
     };
 };
