@@ -55,13 +55,18 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
             }
         };
 
-        // Handle user input in AI mode
-        const handleKey = (e) => {
+
+
+
+        // Handle all user input in AI mode
+        const handleData = (data) => {
             if (!aiMode) return;
-
-            const char = e.key;
-
-            if (e.domEvent.key === 'Enter') {
+            
+            // Check first character code for special handling
+            const firstCode = data.charCodeAt(0);
+            
+            // Enter key
+            if (firstCode === 13) {
                 const query = inputBufferRef.current.trim();
                 if (query) {
                     term.write('\r\n');
@@ -70,41 +75,33 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 } else {
                     term.write('\r\n\x1b[35m❯\x1b[0m ');
                 }
-            } else if (e.domEvent.key === 'Backspace') {
+                return;
+            }
+            
+            // Backspace/Delete
+            if (firstCode === 127 || firstCode === 8) {
                 if (inputBufferRef.current.length > 0) {
                     inputBufferRef.current = inputBufferRef.current.slice(0, -1);
                     term.write('\b \b');
                 }
-            } else if (char && char.length === 1 && !e.domEvent.ctrlKey && !e.domEvent.metaKey) {
-                inputBufferRef.current += char;
-                term.write(char);
+                return;
             }
-        };
-
-        // Handle paste operations
-        const handleData = (data) => {
-            if (!aiMode) return;
-
-            // Filter out control characters except newlines
-            const printableData = data.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '');
-
-            // If pasting multiple lines, only use the first line
-            const lines = printableData.split(/[\r\n]+/);
-            if (lines.length > 1 && lines[0]) {
-                // Multi-line paste: take first line and execute immediately
-                inputBufferRef.current = lines[0];
-                term.write(lines[0]);
-                term.write('\r\n');
-                handleAiQuery(lines[0], term);
+            
+            // Ctrl+C
+            if (firstCode === 3) {
                 inputBufferRef.current = '';
-            } else if (printableData) {
-                // Single line paste: add to buffer
-                inputBufferRef.current += printableData;
-                term.write(printableData);
+                term.write('^C\r\n\x1b[35m❯\x1b[0m ');
+                return;
             }
+            
+            // Ignore other control characters (but keep printable)
+            if (firstCode < 32) return;
+            
+            // Regular character or paste - just add and display
+            inputBufferRef.current += data;
+            term.write(data);
         };
 
-        term.onKey(handleKey);
         term.onData(handleData);
 
         if (window.electronAPI) {
