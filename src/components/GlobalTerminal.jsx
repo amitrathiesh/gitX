@@ -72,37 +72,40 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;
 
-                // Start persistent shell
-                if (project && window.electronAPI && window.electronAPI.startShell) {
-                    window.electronAPI.startShell(project.path);
-                }
-
-                // Restore AI conversation history (if any)
-                const aiHistory = getAiHistory();
-                if (aiHistory) {
-                    term.write(aiHistory);
-                }
-
-                // Hook sync for initial AI mode if needed (after history restoration)
-                if (aiMode) {
-                    term.write('\r\n\x1b[36mGemini: Type your question and press Enter\x1b[0m\r\n');
-                    term.write('\x1b[36m❯\x1b[0m ');
-                }
-
-                // Listen for terminal output from project
-                const handleOutput = (data) => {
-                    if (!xtermRef.current?.aiMode && data.projectId === project?.path) {
-                        term.write(data.data);
+                // CRITICAL: Wait for xterm viewport to fully initialize before ANY operations
+                setTimeout(() => {
+                    // Start persistent shell
+                    if (project && window.electronAPI && window.electronAPI.startShell) {
+                        window.electronAPI.startShell(project.path);
                     }
-                };
 
-                // Input handling via Hook
-                term.onData(handleData);
+                    // Restore AI conversation history (if any)
+                    const aiHistory = getAiHistory();
+                    if (aiHistory) {
+                        term.write(aiHistory);
+                    }
 
-                // Listeners
-                if (window.electronAPI) {
-                    unsubscribeLogs = window.electronAPI.onTerminalOutput(handleOutput);
-                }
+                    // Hook sync for initial AI mode if needed (after history restoration)
+                    if (aiMode) {
+                        term.write('\r\n\x1b[36mGemini: Type your question and press Enter\x1b[0m\r\n');
+                        term.write('\x1b[36m❯\x1b[0m ');
+                    }
+
+                    // Listen for terminal output from project
+                    const handleOutput = (data) => {
+                        if (!xtermRef.current?.aiMode && data.projectId === project?.path) {
+                            term.write(data.data);
+                        }
+                    };
+
+                    // Input handling via Hook
+                    term.onData(handleData);
+
+                    // Listeners
+                    if (window.electronAPI) {
+                        unsubscribeLogs = window.electronAPI.onTerminalOutput(handleOutput);
+                    }
+                }, 200); // Wait 200ms for viewport initialization
             } catch (e) {
                 console.error('[GlobalTerminal] Failed to open terminal:', e);
             }

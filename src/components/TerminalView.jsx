@@ -74,33 +74,36 @@ const TerminalView = ({ projectId, aiModeEnabled = false, project }) => {
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;
 
-                // Setup event handlers
-                if (window.electronAPI) {
-                    // 1. Fetch History (shell output)
-                    window.electronAPI.getProjectHistory(projectId).then(history => {
-                        if (history && term) {
-                            term.write(history);
-                        }
+                // CRITICAL: Wait for xterm to fully initialize its viewport before ANY operations
+                setTimeout(() => {
+                    // Setup event handlers AFTER viewport is ready
+                    if (window.electronAPI) {
+                        // 1. Fetch History (shell output)
+                        window.electronAPI.getProjectHistory(projectId).then(history => {
+                            if (history && term) {
+                                term.write(history);
+                            }
 
-                        // 2. Restore AI conversation history (if any)
-                        const aiHistory = getAiHistory();
-                        if (aiHistory && term) {
-                            term.write(aiHistory);
-                        }
-                    });
+                            // 2. Restore AI conversation history (if any) AFTER shell history
+                            const aiHistory = getAiHistory();
+                            if (aiHistory && term) {
+                                setTimeout(() => term.write(aiHistory), 50);
+                            }
+                        });
 
-                    // 2. Listen for new logs
-                    unsubscribeLogs = window.electronAPI.onTerminalOutput(({ projectId: pid, data }) => {
-                        if (pid === projectId && !xtermRef.current?.aiMode) {
-                            term.write(data);
-                        }
-                    });
+                        // 3. Listen for new logs
+                        unsubscribeLogs = window.electronAPI.onTerminalOutput(({ projectId: pid, data }) => {
+                            if (pid === projectId && !xtermRef.current?.aiMode) {
+                                term.write(data);
+                            }
+                        });
 
-                    // 3. Handle User Input
-                    term.onData((data) => {
-                        handleData(data);
-                    });
-                }
+                        // 4. Handle User Input
+                        term.onData((data) => {
+                            handleData(data);
+                        });
+                    }
+                }, 200); // Wait 200ms for viewport initialization
             } catch (e) {
                 console.error('[TerminalView] Failed to open terminal:', e);
             }
