@@ -75,14 +75,11 @@ const Dashboard = ({ onProjectSelect }) => {
 
                 // Auto-detect type
                 const type = await window.electronAPI.detectType(project.path);
-
-                // Update project with type
                 const updatedProject = { ...project, type };
 
                 // Auto-install
                 console.log('Installing dependencies...');
                 await window.electronAPI.installProject(updatedProject);
-                console.log('Dependencies installed.');
 
                 loadProjects();
                 setRepoUrl('');
@@ -102,7 +99,6 @@ const Dashboard = ({ onProjectSelect }) => {
             const result = await window.electronAPI.selectLocalProject();
             if (result) {
                 setLoading(true);
-                // Create project object
                 const project = {
                     name: result.name,
                     path: result.path,
@@ -114,14 +110,10 @@ const Dashboard = ({ onProjectSelect }) => {
 
                 await window.electronAPI.addProject(project); // Add to store
 
-                // Detect type
                 const type = await window.electronAPI.detectType(project.path);
                 const updated = { ...project, type };
 
-                // Install dependencies
-                console.log('Installing dependencies for local project...');
                 await window.electronAPI.installProject(updated);
-
                 loadProjects();
             }
         } catch (e) {
@@ -134,7 +126,6 @@ const Dashboard = ({ onProjectSelect }) => {
 
     const handleRun = (project, scriptName, options) => {
         window.electronAPI.runProject(project, scriptName, options);
-        // Select this project in terminal
         if (onProjectSelect) onProjectSelect(project);
     };
 
@@ -161,18 +152,14 @@ const Dashboard = ({ onProjectSelect }) => {
     };
 
     const handleDelete = async (project) => {
-        // First confirmation: Remove from dashboard
         const removeFromDashboard = window.confirm(
-            `Remove "${project.name}" from gitX dashboard?\n\n` +
-            `The project will be removed from the list, but files will remain on disk.`
+            `Remove "${project.name}" from gitX dashboard?`
         );
 
         if (!removeFromDashboard) return;
 
-        // Second confirmation: Delete files from disk?
         const deleteFiles = window.confirm(
             `Do you also want to DELETE the project files from disk?\n\n` +
-            `⚠️ WARNING: This will permanently delete:\n${project.path}\n\n` +
             `Click OK to DELETE FILES or Cancel to keep them.`
         );
 
@@ -180,10 +167,6 @@ const Dashboard = ({ onProjectSelect }) => {
             if (window.electronAPI) {
                 await window.electronAPI.removeProject(project.path, deleteFiles);
                 loadProjects();
-
-                if (deleteFiles) {
-                    alert(`Project removed and files deleted successfully.`);
-                }
             }
         } catch (error) {
             console.error('Failed to delete project', error);
@@ -197,104 +180,92 @@ const Dashboard = ({ onProjectSelect }) => {
     );
 
     return (
-        <div className="space-y-6">
-            {/* Add Project Bar */}
-            <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
-                <form onSubmit={handleAddProject} className="flex gap-4">
-                    <input
-                        ref={urlInputRef}
-                        type="text"
-                        value={repoUrl}
-                        onChange={(e) => setRepoUrl(e.target.value)}
-                        placeholder="Paste Git Repository URL..."
-                        className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring non-draggable"
-                    />
+        <div className="space-y-8">
+            {/* Controls Bar */}
+            <div className="flex flex-col md:flex-row gap-4">
+                {/* Search */}
+                <div className="relative flex-1 group">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500 group-focus-within:text-primary transition-colors" />
                     <input
                         type="text"
-                        value={targetDir}
-                        onChange={(e) => setTargetDir(e.target.value)}
-                        placeholder="Target Directory"
-                        className="w-1/3 bg-background border border-input rounded-md px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring non-draggable"
+                        placeholder="Search projects..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/5 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all shadow-sm dark:shadow-black/20"
                     />
+                </div>
+
+                {/* Add Project Form (Condensed) */}
+                <div className="flex-[2] flex gap-2">
+                    <form onSubmit={handleAddProject} className="flex-1 flex gap-2">
+                        <input
+                            ref={urlInputRef}
+                            type="text"
+                            value={repoUrl}
+                            onChange={(e) => setRepoUrl(e.target.value)}
+                            placeholder="Clone URL..."
+                            className="flex-1 bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/5 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all shadow-sm dark:shadow-black/20"
+                        />
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="bg-primary text-white hover:bg-primary/90 rounded-xl px-4 py-2 flex items-center gap-2 disabled:opacity-50 transition-all font-medium whitespace-nowrap shadow-lg shadow-primary/20"
+                        >
+                            <Plus size={18} />
+                            {loading ? 'Cloning...' : 'Add'}
+                        </button>
+                    </form>
+
                     <button
-                        type="submit"
-                        disabled={loading}
-                        className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-4 py-2 flex items-center gap-2 disabled:opacity-50 non-draggable"
-                    >
-                        <Plus size={18} />
-                        {loading ? 'Cloning...' : 'Add Project'}
-                    </button>
-                    <button
-                        type="button"
                         onClick={handleImportLocal}
                         disabled={loading}
-                        className="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-2 flex items-center gap-2 non-draggable disabled:opacity-50"
+                        className="bg-white dark:bg-white/5 text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-white/10 rounded-xl px-4 py-2 flex items-center gap-2 border border-slate-200 dark:border-white/5 transition-all shadow-sm dark:shadow-none"
                         title="Import Local Folder"
                     >
                         <FolderInput size={18} />
-                        Import
                     </button>
+
                     <button
-                        type="button"
                         onClick={loadProjects}
-                        className="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-2 non-draggable"
-                        title="Refresh Project Status"
+                        className="bg-white dark:bg-white/5 text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-white/10 rounded-xl px-3 py-2 border border-slate-200 dark:border-white/5 transition-all shadow-sm dark:shadow-none"
+                        title="Refresh Status"
                     >
                         <RefreshCw size={18} />
                     </button>
-                </form>
+                </div>
             </div>
 
-            {/* Projects Table */}
-            <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                    <h2 className="text-xl font-semibold">Your Projects</h2>
-                    <div className="relative w-64">
-                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <input
-                            type="text"
-                            placeholder="Search projects..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-background border border-input rounded-md pl-8 pr-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring non-draggable"
-                        />
-                    </div>
+            {/* Header for list */}
+            <div className="flex items-center justify-between px-2">
+                <div className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                    {filteredProjects.length} Projects
                 </div>
+                {/* Sort controls could go here */}
+            </div>
 
+            {/* Projects List */}
+            <div className="space-y-3">
                 {filteredProjects.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground bg-card/50 rounded-lg border border-dashed border-border">
-                        No projects found. Add one above!
+                    <div className="flex flex-col items-center justify-center py-20 text-slate-500 bg-slate-50/50 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-2xl border-dashed">
+                        <div className="p-4 bg-slate-100 dark:bg-slate-800/50 rounded-full mb-4">
+                            <Plus size={32} className="opacity-50" />
+                        </div>
+                        <p className="text-lg font-medium text-slate-700 dark:text-slate-200">No projects found</p>
+                        <p className="text-sm opacity-70">Add a repository or import a folder to get started</p>
                     </div>
                 ) : (
-                    <div className="bg-card border border-border rounded-lg overflow-hidden">
-                        <table className="w-full">
-                            <thead className="bg-secondary/50 border-b border-border">
-                                <tr>
-                                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Project</th>
-                                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Type</th>
-                                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Branch</th>
-                                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Port</th>
-                                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Script</th>
-                                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredProjects.map((project) => (
-                                    <ProjectRow
-                                        key={project.path}
-                                        project={project}
-                                        onRun={handleRun}
-                                        onStop={handleStop}
-                                        onUpdate={handleUpdate}
-                                        onOpenFolder={handleOpenFolder}
-                                        onDelete={handleDelete}
-                                        onSelect={onProjectSelect}
-                                    />
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    filteredProjects.map((project) => (
+                        <ProjectRow
+                            key={project.path}
+                            project={project}
+                            onRun={handleRun}
+                            onStop={handleStop}
+                            onUpdate={handleUpdate}
+                            onOpenFolder={handleOpenFolder}
+                            onDelete={handleDelete}
+                            onSelect={onProjectSelect}
+                        />
+                    ))
                 )}
             </div>
         </div>

@@ -22,6 +22,9 @@ const store = new Store();
 
 // Track running processes by project path
 const runningProcesses = new Map();
+// Track terminal history by project path (last N lines/bytes)
+const projectLogs = new Map();
+const MAX_LOG_SIZE = 50000; // ~50KB buffer per project
 
 // --- Port Utilities ---
 
@@ -519,44 +522,30 @@ ipcMain.on('project:run', async (event, project, scriptName = null, options = {}
         }
     };
 
-    // Clean terminal output by removing diagnostic markers
-    const cleanTerminalOutput = (data) => {
-        const lines = data.toString().split('\n');
-        const cleaned = lines.filter(line => {
-            // Remove lines that are purely diagnostic markers
-            // Pattern 1: Lines like "   |    ^" or "639|    ^"
-            if (/^\s*\d*\|?\s*[\^|]+\s*$/.test(line)) return false;
-
-            // Pattern 2: Lines that start with line number and only contain whitespace
-            if (/^\d+\|\s*$/.test(line)) return false;
-
-            // Pattern 3: Lines with whitespace, pipe, then markers (like "   |  ^^")
-            if (/^\s+\|\s*[\^|]+\s*$/.test(line)) return false;
-
-            // Pattern 4: Lines that are primarily marker characters (> 50% of non-whitespace)
-            const withoutWhitespace = line.replace(/\s/g, '');
-            const markerCount = (withoutWhitespace.match(/[\^|]/g) || []).length;
-            if (markerCount > withoutWhitespace.length * 0.5) return false;
-
-            return true;
-        });
-        return cleaned.join('\n');
+    const appendLog = (projectId, data) => {
+        let current = projectLogs.get(projectId) || '';
+        current += data;
+        if (current.length > MAX_LOG_SIZE) {
+            current = current.slice(current.length - MAX_LOG_SIZE);
+        }
+        projectLogs.set(projectId, current);
     };
 
     child.stdout.on('data', (data) => {
         scanForPort(data);
-        const cleaned = cleanTerminalOutput(data);
-        if (cleaned.trim()) { // Only send non-empty output
-            event.sender.send('terminal-output', { projectId: project.path, data: cleaned });
-        }
+        // Original raw data for history (preserves formatting better)
+        const rawString = data.toString();
+        appendLog(project.path, rawString);
+
+        event.sender.send('terminal-output', { projectId: project.path, data: rawString });
     });
 
     child.stderr.on('data', (data) => {
         scanForPort(data);
-        const cleaned = cleanTerminalOutput(data);
-        if (cleaned.trim()) { // Only send non-empty output
-            event.sender.send('terminal-output', { projectId: project.path, data: cleaned });
-        }
+        const rawString = data.toString();
+        appendLog(project.path, rawString);
+
+        event.sender.send('terminal-output', { projectId: project.path, data: rawString });
     });
 
     child.on('close', (code) => {
@@ -656,11 +645,28 @@ ipcMain.on('terminal:start-shell', (event, projectPath) => {
     });
 });
 
-// Handle User Input (Typing)
+// Handle User Input (Typing) - Global Shell
 ipcMain.on('terminal:input', (event, data) => {
     if (globalShell) {
         globalShell.stdin.write(data);
     }
+});
+
+// Handle User Input (Typing) - Project Process
+ipcMain.on('project:input', (event, { projectId, data }) => {
+    const child = runningProcesses.get(projectId);
+    if (child) {
+        try {
+            child.stdin.write(data);
+        } catch (e) {
+            console.error(`Failed to write to project process ${projectId}:`, e);
+        }
+    }
+});
+
+// Get Project History
+ipcMain.handle('project:get-history', (event, projectId) => {
+    return projectLogs.get(projectId) || '';
 });
 
 // Execute arbitrary command (via persistent shell now)

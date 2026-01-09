@@ -2,56 +2,163 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
+import { useGeminiTerminal } from '../hooks/useGeminiTerminal';
 
-const TerminalView = ({ projectId }) => {
+const TerminalView = ({ projectId, aiModeEnabled = false, project }) => {
     const terminalRef = useRef(null);
     const xtermRef = useRef(null);
     const fitAddonRef = useRef(null);
 
+    // AI Hook
+    const { aiMode, handleToggleAiMode, handleData } = useGeminiTerminal(xtermRef, project);
+
+    // Sync AI mode from props
+    useEffect(() => {
+        if (aiModeEnabled !== aiMode) {
+            handleToggleAiMode(aiModeEnabled);
+        }
+    }, [aiModeEnabled, aiMode, handleToggleAiMode]);
+
     useEffect(() => {
         if (!terminalRef.current) return;
 
-        // Initialize xterm.js
-        const term = new Terminal({
-            theme: {
-                background: '#0f172a', // Match app background
-                foreground: '#e2e8f0',
-            },
-            fontSize: 12,
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-            cursorBlink: true,
-            rows: 15, // Initial height
+        let term = null;
+        let fitAddon = null;
+        let unsubscribeLogs = null;
+        let resizeObserver = null;
+        let isOpen = false;
+
+        const tryOpenTerminal = () => {
+            if (isOpen || !terminalRef.current) return;
+
+            const container = terminalRef.current;
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            if (width === 0 || height === 0) {
+                // Container not ready
+                return;
+            }
+
+            try {
+                // Initialize xterm.js
+                term = new Terminal({
+                    theme: {
+                        background: '#000000',
+                        foreground: '#e2e8f0',
+                        cursor: '#ffffff'
+                    },
+                    fontSize: 12,
+                    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                    cursorBlink: true,
+                    rows: 15,
+                    convertEol: true,
+                });
+
+                fitAddon = new FitAddon();
+                term.loadAddon(fitAddon);
+                term.open(container);
+                isOpen = true;
+
+                // Fit after opening
+                setTimeout(() => {
+                    try {
+                        if (fitAddon && container.clientWidth > 0) {
+                            fitAddon.fit();
+                        }
+                    } catch (e) {
+                        console.warn('[TerminalView] Fit error:', e);
+                    }
+                }, 100);
+
+                xtermRef.current = term;
+                fitAddonRef.current = fitAddon;
+
+                // Setup event handlers
+                if (window.electronAPI) {
+                    // 1. Fetch History
+                    window.electronAPI.getProjectHistory(projectId).then(history => {
+                        if (history && term) {
+                            term.write(history);
+                        }
+                    });
+
+                    // 2. Listen for new logs
+                    unsubscribeLogs = window.electronAPI.onTerminalOutput(({ projectId: pid, data }) => {
+                        if (pid === projectId && !xtermRef.current?.aiMode) {
+                            term.write(data);
+                        }
+                    });
+
+                    // 3. Handle User Input
+                    term.onData((data) => {
+                        handleData(data);
+                    });
+                }
+            } catch (e) {
+                console.error('[TerminalView] Failed to open terminal:', e);
+            }
+        };
+
+        // Use ResizeObserver to detect when container gets dimensions
+        resizeObserver = new ResizeObserver(() => {
+            if (!isOpen) {
+                tryOpenTerminal();
+            } else if (fitAddonRef.current && terminalRef.current) {
+                try {
+                    fitAddonRef.current.fit();
+                } catch (e) {
+                    // Ignore resize errors
+                }
+            }
         });
 
-        const fitAddon = new FitAddon();
-        term.loadAddon(fitAddon);
-
-        term.open(terminalRef.current);
-        fitAddon.fit();
-
-        xtermRef.current = term;
-        fitAddonRef.current = fitAddon;
-
-        // Listen for logs
-        let unsubscribe;
-        if (window.electronAPI) {
-            unsubscribe = window.electronAPI.onTerminalOutput(({ projectId: pid, data }) => {
-                if (pid === projectId) {
-                    term.write(data);
-                }
-            });
+        if (terminalRef.current) {
+            resizeObserver.observe(terminalRef.current);
         }
 
-        const handleResize = () => fitAddon.fit();
+        // Try immediate open
+        tryOpenTerminal();
+
+        const handleResize = () => {
+            if (fitAddonRef.current && terminalRef.current && terminalRef.current.offsetParent) {
+                try {
+                    fitAddonRef.current.fit();
+                } catch (e) {
+                    // Ignore
+                }
+            }
+        };
         window.addEventListener('resize', handleResize);
 
         return () => {
-            // Cleanup
-            term.dispose();
+            if (unsubscribeLogs && typeof unsubscribeLogs === 'function') {
+                unsubscribeLogs();
+            }
             window.removeEventListener('resize', handleResize);
-            // unsubscribe logic would go here if event listener returns one
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+            }
+            if (xtermRef.current) {
+                try {
+                    xtermRef.current.dispose();
+                } catch (e) {
+                    console.warn('[TerminalView] Dispose error:', e);
+                }
+                xtermRef.current = null;
+            }
+            if (fitAddonRef.current) {
+                fitAddonRef.current = null;
+            }
         };
-    }, [projectId]);
+    }, [projectId]); // Removed handleData from deps - causes terminal recreation
+
+    // Keep ref sync for hook's log interception check
+    useEffect(() => {
+        if (xtermRef.current) {
+            xtermRef.current.aiMode = aiMode;
+        }
+    }, [aiMode]);
 
     return (
         <div className="w-full h-[250px] bg-[#0f172a] rounded-md overflow-hidden border border-border">

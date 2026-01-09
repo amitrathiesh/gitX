@@ -16,15 +16,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     executeCommand: (command, projectPath) => ipcRenderer.send('terminal:execute', command, projectPath),
     startShell: (projectPath) => ipcRenderer.send('terminal:start-shell', projectPath),
     sendInput: (data) => ipcRenderer.send('terminal:input', data),
+    sendProjectInput: (projectId, data) => ipcRenderer.send('project:input', { projectId, data }),
+    getProjectHistory: (projectId) => ipcRenderer.invoke('project:get-history', projectId),
     openFolder: (path) => ipcRenderer.invoke('folder:open', path),
     selectLocalProject: () => ipcRenderer.invoke('project:select-local'),
     openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
 
     // Events
-    onTerminalOutput: (callback) => ipcRenderer.on('terminal-output', (event, value) => callback(value)),
+    onTerminalOutput: (callback) => {
+        const subscription = (event, value) => callback(value);
+        ipcRenderer.on('terminal-output', subscription);
+        return () => ipcRenderer.removeListener('terminal-output', subscription);
+    },
     removeTerminalListener: () => ipcRenderer.removeAllListeners('terminal-output'), // Simple cleanup for now
     onStatusChange: (callback) => ipcRenderer.on('project:status-change', (event, value) => callback(value)),
-    onPortDetected: (callback) => ipcRenderer.on('project:port-detected', (event, value) => callback(value)),
+    onPortDetected: (callback) => {
+        const subscription = (event, value) => callback(value);
+        ipcRenderer.on('project:port-detected', subscription);
+        return () => ipcRenderer.removeListener('project:port-detected', subscription);
+    },
     onMenuAddUrl: (callback) => ipcRenderer.on('menu:add-url', () => callback()),
     onMenuImportLocal: (callback) => ipcRenderer.on('menu:import-local', () => callback()),
 
