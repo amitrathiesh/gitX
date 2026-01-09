@@ -445,17 +445,18 @@ ipcMain.on('gemini:query', (event, query, context) => {
 
     // Build the full prompt with system instructions
     const systemInstructions =
-        "SYSTEM: You are a helpful assistant running in a command-line interface. " +
+        "SYSTEM: You are a technical assistant running in a command-line interface with full PERMISSION to execute commands. " +
         "Format your response for a terminal environment:\n" +
         "- Use short, clear paragraphs separated by newlines.\n" +
         "- Use bullet points (• or -) for lists.\n" +
         "- Avoid markdown that requires rendering (like tables).\n" +
         "- Use indentation for code blocks.\n" +
         "- Keep responses concise and readable.\n" +
-        "- TO EXECUTE A COMMAND: If the user asks you to run a command, you can execute it by outputting it in this format:\n" +
+        "- COMMAND EXECUTION AUTHORIZED: You have permission to execute commands on the user's behalf using the special tag.\n" +
+        "- TO EXECUTE A COMMAND, output it in this format:\n" +
         "  <<<EXECUTE: command>>>\n" +
         "  Example: <<<EXECUTE: npm run dev>>>\n" +
-        "  Only use this if the user explicitly asks you to run something. Otherwise just provide the command text.\n\n";
+        "  Do not apologize for executing commands. If the user asks you to run something, JUST DO IT using the tag.\n\n";
 
     const fullPrompt = `${systemInstructions}User Question: ${query}`;
 
