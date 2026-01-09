@@ -61,10 +61,10 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
         // Handle all user input in AI mode
         const handleData = (data) => {
             if (!aiMode) return;
-            
+
             // Check first character code for special handling
             const firstCode = data.charCodeAt(0);
-            
+
             // Enter key
             if (firstCode === 13) {
                 const query = inputBufferRef.current.trim();
@@ -77,7 +77,7 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 }
                 return;
             }
-            
+
             // Backspace/Delete
             if (firstCode === 127 || firstCode === 8) {
                 if (inputBufferRef.current.length > 0) {
@@ -86,17 +86,17 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 }
                 return;
             }
-            
+
             // Ctrl+C
             if (firstCode === 3) {
                 inputBufferRef.current = '';
                 term.write('^C\r\n\x1b[35m❯\x1b[0m ');
                 return;
             }
-            
+
             // Ignore other control characters (but keep printable)
             if (firstCode < 32) return;
-            
+
             // Regular character or paste - just add and display
             inputBufferRef.current += data;
             term.write(data);
@@ -143,41 +143,61 @@ const GlobalTerminal = ({ project, isVisible, onClose }) => {
                 projectPath: project?.path,
             };
 
-            // Set up streaming listeners
-            let responseStarted = false;
+            // Set up steaming listeners
+            const streamingBufferRef = { current: '' };
+            let isStreaming = false;
+            let streamInterval = null;
+
+            const processStreamBuffer = () => {
+                if (!streamingBufferRef.current) {
+                    if (!isStreaming && streamInterval) {
+                        clearInterval(streamInterval);
+                        streamInterval = null;
+                        term.write('\r\n\r\n\x1b[35m❯\x1b[0m ');
+                        cleanup();
+                    }
+                    return;
+                }
+
+                // Adaptive typing speed: if buffer is huge, type faster
+                const bufferLength = streamingBufferRef.current.length;
+                const chunkSize = Math.max(1, Math.floor(bufferLength / 20)); // Type ~5% of buffer per frame, min 1 char
+
+                // Get chunk to write
+                const chunk = streamingBufferRef.current.slice(0, chunkSize);
+                streamingBufferRef.current = streamingBufferRef.current.slice(chunkSize);
+
+                term.write(`\x1b[35m${chunk}\x1b[0m`);
+            };
 
             const handleData = (data) => {
-                if (!responseStarted) {
-                    // Clear "Querying Gemini..." line
-                    term.write('\r\x1b[K');
-                    responseStarted = true;
+                if (!isStreaming) {
+                    // Start streaming loop on first data
+                    term.write('\r\x1b[K'); // Clear "Querying..."
+                    isStreaming = true;
+                    // Run loop every 16ms (approx 60fps)
+                    streamInterval = setInterval(processStreamBuffer, 16);
                 }
-                // Write response in purple as it arrives
-                term.write(`\x1b[35m${data}\x1b[0m`);
+
+                streamingBufferRef.current += data;
             };
 
             const handleError = (error) => {
+                if (streamInterval) clearInterval(streamInterval);
                 term.write(`\r\n\x1b[31mError: ${error}\x1b[0m\r\n`);
                 term.write('\x1b[35m❯\x1b[0m ');
                 cleanup();
             };
 
             const handleComplete = () => {
-                term.write('\r\n\r\n\x1b[35m❯\x1b[0m ');
-                cleanup();
+                isStreaming = false;
+                // Don't cleanup immediately, let the buffer drain in the interval loop
             };
 
             const cleanup = () => {
-                // Remove event listeners after completion
-                if (window.electronAPI.onGeminiData) {
-                    window.electronAPI.onGeminiData(() => { });
-                }
-                if (window.electronAPI.onGeminiError) {
-                    window.electronAPI.onGeminiError(() => { });
-                }
-                if (window.electronAPI.onGeminiComplete) {
-                    window.electronAPI.onGeminiComplete(() => { });
-                }
+                if (window.electronAPI.onGeminiData) window.electronAPI.onGeminiData(() => { });
+                if (window.electronAPI.onGeminiError) window.electronAPI.onGeminiError(() => { });
+                if (window.electronAPI.onGeminiComplete) window.electronAPI.onGeminiComplete(() => { });
             };
 
             // Attach listeners
