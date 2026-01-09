@@ -425,9 +425,7 @@ ipcMain.on('gemini:query', (event, query, context) => {
     // Escape the query for shell safety
     const escapedQuery = query.replace(/'/g, "'\\''");
 
-    // Use script command to force line buffering for better streaming
-    // This makes output appear faster instead of in blocks
-    const child = spawn('/bin/bash', ['-c', `script -q /dev/null gemini '${escapedQuery}'`], {
+    const child = spawn('/bin/bash', ['-c', `gemini '${escapedQuery}'`], {
         cwd: projectPath,  // Run in project directory
         env: process.env
     });
